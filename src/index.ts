@@ -4,6 +4,11 @@ import { renderHelp } from "./cli/help.js";
 import { getCliCommand, nativeCommandNames } from "./cli/spec.js";
 import { hasOption, optionValue, parseSince } from "./cli/args.js";
 import {
+  isCompletionShell,
+  renderCompletions,
+  shellList,
+} from "./cli/completions.js";
+import {
   gitContextOptions,
   gitContextRaw,
   gitContextRawJson,
@@ -81,6 +86,16 @@ function helpCommandArg(args: readonly string[]): string | undefined {
   return args.find((arg) => !arg.startsWith("-"));
 }
 
+function runCompletions(args: readonly string[]) {
+  const shell = args.find((arg) => !arg.startsWith("-")) ?? "zsh";
+  if (!isCompletionShell(shell)) {
+    throw new Error(
+      `context completions: unsupported shell '${shell}' (expected: ${shellList()})`,
+    );
+  }
+  return Effect.sync(() => process.stdout.write(renderCompletions(shell)));
+}
+
 const parsed = parseArgs(process.argv.slice(2));
 const command = parsed.command;
 
@@ -119,6 +134,8 @@ if (command === "mcp") {
         return runStack(parsed.rest);
       case "opencode-debug":
         return opencodeDebugRaw(optionValue(parsed.rest, "--agent"));
+      case "completions":
+        return runCompletions(parsed.rest);
       case "help":
         return Effect.sync(() => {
           console.log(renderHelp(helpCommandArg(parsed.rest)));

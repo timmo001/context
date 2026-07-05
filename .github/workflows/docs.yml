@@ -1,16 +1,44 @@
+---
 name: Docs
 
+# yamllint disable-line rule:truthy
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - "src/cli/spec.ts"
+      - "src/mcp/toolMetadata.ts"
+      - ".github/workflows/docs.yml"
   pull_request:
+    paths:
+      - "docs/**"
+      - "src/cli/spec.ts"
+      - "src/mcp/toolMetadata.ts"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  docs:
+  build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566
-      - run: mise run docs:gen
-      - run: git diff --exit-code -- docs/src/content/docs
-      - run: mise run docs:build
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Set up mise
+        uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566
+
+      - name: Regenerate docs
+        run: mise run docs:gen
+
+      - name: Verify generated docs are in sync
+        run: git diff --exit-code -- docs/src/content/docs/cli/commands.md docs/src/content/docs/mcp/tools.md
+
+      - name: Build docs
+        run: mise run docs:build

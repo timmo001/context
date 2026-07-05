@@ -226,6 +226,25 @@ export const cliCommands: readonly CliCommandSpec[] = [
     examples: ["context mcp"],
   },
   {
+    name: "completions",
+    summary: "Generate shell completions",
+    usage: "[bash|fish|zsh]",
+    description: ["Generate shell completions for context."],
+    arguments: [
+      {
+        name: "shell",
+        choices: [{ value: "bash" }, { value: "fish" }, { value: "zsh" }],
+        completion: "shell",
+      },
+    ],
+    options: [helpOption],
+    examples: [
+      "context completions zsh",
+      "context completions bash",
+      "context completions fish",
+    ],
+  },
+  {
     name: "help",
     summary: "Show context help",
     usage: "[command]",
@@ -238,6 +257,7 @@ export const cliCommands: readonly CliCommandSpec[] = [
           { value: "stack" },
           { value: "opencode-debug" },
           { value: "mcp" },
+          { value: "completions" },
         ],
       },
     ],

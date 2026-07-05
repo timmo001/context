@@ -147,6 +147,30 @@ Start a Model Context Protocol server exposing git_context, stack_context, comma
 context mcp
 ```
 
+## `context completions`
+
+Generate shell completions
+
+```text
+context completions [bash|fish|zsh]
+```
+
+Generate shell completions for context.
+
+**Arguments**
+
+| Argument  | Description                    |
+| --------- | ------------------------------ |
+| `<shell>` | One of: `bash`, `fish`, `zsh`. |
+
+**Examples**
+
+```bash
+context completions zsh
+context completions bash
+context completions fish
+```
+
 ## `context help`
 
 Show context help
@@ -157,9 +181,9 @@ context help [command]
 
 **Arguments**
 
-| Argument    | Description                                                                        |
-| ----------- | ---------------------------------------------------------------------------------- |
-| `<command>` | Optional command to show help for One of: `git`, `stack`, `opencode-debug`, `mcp`. |
+| Argument    | Description                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------- |
+| `<command>` | Optional command to show help for One of: `git`, `stack`, `opencode-debug`, `mcp`, `completions`. |
 
 **Examples**
 
