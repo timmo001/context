@@ -54,6 +54,12 @@ depends = ["docs:install"]
 dir = "docs"
 run = "bun run build"
 
+[tasks."docs:og"]
+description = "Regenerate the docs Open Graph image"
+depends = ["docs:install"]
+dir = "docs"
+run = "bun run og"
+
 [tasks."docs:preview"]
 description = "Preview docs site"
 depends = ["docs:install"]

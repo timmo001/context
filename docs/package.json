@@ -8,6 +8,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
+    "og": "bun scripts/generate-og.mjs",
     "gen:cli": "bun scripts/generate-cli-reference.ts && bunx prettier --write src/content/docs/cli/commands.md",
     "gen:mcp": "bun scripts/generate-mcp-reference.ts && bunx prettier --write src/content/docs/mcp/tools.md",
     "gen": "bun run gen:cli && bun run gen:mcp",

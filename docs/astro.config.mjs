@@ -22,17 +22,49 @@ export default defineConfig({
   integrations: [
     sitemap(),
     starlight({
-      title: "context",
+      title: "Context",
+      logo: {
+        src: "./src/assets/logo.svg",
+        alt: "Context logo",
+      },
       favicon: "/favicon.svg",
       customCss: ["./src/styles/starlight.css"],
       editLink: {
         baseUrl: "https://github.com/timmo001/context/edit/main/docs/",
       },
       lastUpdated: true,
+      head: [
+        {
+          tag: "meta",
+          attrs: {
+            property: "og:image",
+            content: "https://context.timmo.dev/og.png",
+          },
+        },
+        {
+          tag: "meta",
+          attrs: { property: "og:image:width", content: "1200" },
+        },
+        {
+          tag: "meta",
+          attrs: { property: "og:image:height", content: "630" },
+        },
+        {
+          tag: "meta",
+          attrs: { property: "og:image:alt", content: "Context" },
+        },
+        {
+          tag: "meta",
+          attrs: {
+            name: "twitter:image",
+            content: "https://context.timmo.dev/og.png",
+          },
+        },
+      ],
       plugins: [
         starlightLinksValidator(),
         starlightLlmsTxt({
-          projectName: "context",
+          projectName: "Context",
           description:
             "Standalone CLI and MCP server for deterministic repository context.",
           promote: ["index*"],

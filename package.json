@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --compile --outfile dist/context",
-    "format": "prettier --write \"src/**/*.ts\" \"docs/scripts/**/*.ts\" \"docs/src/**/*.{md,mdx,astro,css}\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"docs/scripts/**/*.ts\" \"docs/src/**/*.{md,mdx,astro,css}\"",
+    "format": "prettier --write \"src/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
     "prepare": "effect-language-service patch"
   },
   "dependencies": {
