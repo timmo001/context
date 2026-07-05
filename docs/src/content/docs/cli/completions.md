@@ -13,4 +13,4 @@ context completions fish
 context completions zsh
 ```
 
-The dotfiles setup stores generated completion files in its stow source so they are installed with `dot stow`. Package builds can also install the generated scripts directly into the shell-specific completion directories.
+Install the generated scripts into the shell-specific completion directories for your package or environment.

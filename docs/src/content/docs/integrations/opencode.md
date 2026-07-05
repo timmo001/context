@@ -7,7 +7,7 @@ sidebar:
 
 `context` owns the generic CLI and MCP server. OpenCode plugins are maintained outside this repo because they are part of the agent configuration layer.
 
-The portable OpenCode config lives in [`timmo001/opencode-config`](https://github.com/timmo001/opencode-config). Dotfiles-specific integration docs live in [`timmo001/dotfiles`](https://github.com/timmo001/dotfiles) and on <https://dotfiles.timmo.dev>.
+The portable OpenCode config lives in [`timmo001/opencode-config`](https://github.com/timmo001/opencode-config). Dotfiles-specific integration notes live in the [dotfiles docs](https://dotfiles.timmo.dev/opencode/).
 
 Those plugins should call:
 
