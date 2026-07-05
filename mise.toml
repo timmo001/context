@@ -10,6 +10,7 @@ run = "bun install"
 
 [tasks.dev]
 description = "Run context in watch mode"
+depends = ["install"]
 run = "bun run dev"
 
 [tasks.build]
@@ -19,14 +20,17 @@ run = "bun run build"
 
 [tasks.typecheck]
 description = "Type-check the context source"
+depends = ["install"]
 run = "bunx tsc --noEmit"
 
 [tasks.format]
 description = "Format source and docs"
+depends = ["install"]
 run = "bun run format"
 
 [tasks."format:check"]
 description = "Check formatting without writing"
+depends = ["install"]
 run = "bun run format:check"
 
 [tasks.check]
@@ -40,16 +44,19 @@ run = "bun install"
 
 [tasks."docs:dev"]
 description = "Run docs dev server"
+depends = ["docs:install"]
 dir = "docs"
 run = "bun run dev"
 
 [tasks."docs:build"]
 description = "Build docs site"
+depends = ["docs:install"]
 dir = "docs"
 run = "bun run build"
 
 [tasks."docs:preview"]
 description = "Preview docs site"
+depends = ["docs:install"]
 dir = "docs"
 run = "bun run preview"
 
