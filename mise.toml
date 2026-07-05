@@ -1,0 +1,73 @@
+min_version = "2025.1.0"
+
+[tools]
+node = "26.4.0"
+bun = "1.3.14"
+
+[tasks.install]
+description = "Install context dependencies"
+run = "bun install"
+
+[tasks.dev]
+description = "Run context in watch mode"
+run = "bun run dev"
+
+[tasks.build]
+description = "Compile the context binary"
+depends = ["install"]
+run = "bun run build"
+
+[tasks.typecheck]
+description = "Type-check the context source"
+run = "bunx tsc --noEmit"
+
+[tasks.format]
+description = "Format source and docs"
+run = "bun run format"
+
+[tasks."format:check"]
+description = "Check formatting without writing"
+run = "bun run format:check"
+
+[tasks.check]
+description = "Type-check and verify formatting"
+depends = ["typecheck", "format:check"]
+
+[tasks."docs:install"]
+description = "Install docs dependencies"
+dir = "docs"
+run = "bun install"
+
+[tasks."docs:dev"]
+description = "Run docs dev server"
+dir = "docs"
+run = "bun run dev"
+
+[tasks."docs:build"]
+description = "Build docs site"
+dir = "docs"
+run = "bun run build"
+
+[tasks."docs:preview"]
+description = "Preview docs site"
+dir = "docs"
+run = "bun run preview"
+
+[tasks."docs:gen:cli"]
+description = "Regenerate CLI command reference"
+dir = "docs"
+run = "bun run gen:cli"
+
+[tasks."docs:gen:mcp"]
+description = "Regenerate MCP tool reference"
+dir = "docs"
+run = "bun run gen:mcp"
+
+[tasks."docs:gen"]
+description = "Regenerate generated docs"
+dir = "docs"
+run = "bun run gen"
+
+[tasks."docs:check"]
+description = "Regenerate and build docs"
+depends = ["docs:gen", "docs:build"]

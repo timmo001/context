@@ -1,0 +1,16 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566
+      - run: mise run docs:gen
+      - run: git diff --exit-code -- docs/src/content/docs
+      - run: mise run docs:build

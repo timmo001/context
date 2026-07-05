@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-ts/
+docs/dist/
+docs/.astro/
+.env
+.env.*
+!.env.example

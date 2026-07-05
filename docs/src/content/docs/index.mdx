@@ -1,0 +1,38 @@
+---
+title: context
+description: Standalone CLI and MCP server for deterministic repository context.
+---
+
+`context` gives agents and humans one command for the repository facts they usually gather with many shell calls.
+
+It has two producers:
+
+- `context git` for branch, PR, working-tree, diff, and recent-commit context.
+- `context stack` for deterministic language, ecosystem, tooling, and framework detection.
+
+The same producers are exposed through `context mcp`, so agent harnesses can call `git_context`, `stack_context`, `command_help`, and `opencode_debug` as MCP tools.
+
+## Install
+
+During early extraction, build locally with Bun:
+
+```bash
+bun install
+bun run build
+```
+
+The intended package is `context-git`, installed onto `PATH` as `context`.
+
+## Quick Start
+
+```bash
+context git
+context git --json
+context stack
+context stack --json
+context mcp
+```
+
+## Documentation Split
+
+Generic CLI and MCP behaviour lives here. OpenCode plugins that inject this context into sessions live in [`timmo001/opencode-config`](https://github.com/timmo001/opencode-config), with dotfiles integration notes in [`timmo001/dotfiles`](https://github.com/timmo001/dotfiles).

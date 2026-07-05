@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/@effect/language-service/schema.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist-ts",
+    "rootDir": "src",
+    "types": ["bun"],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "ignoreEffectWarningsInTscExitCode": true
+      }
+    ]
+  },
+  "include": ["src"]
+}
