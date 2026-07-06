@@ -3,6 +3,7 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import sitemap from "@astrojs/sitemap";
 import starlightLlmsTxt from "starlight-llms-txt";
+import starlightContextualMenu from "starlight-contextual-menu";
 import starlightLinksValidator from "starlight-links-validator";
 import rehypeExternalLinks from "rehype-external-links";
 import { unified } from "@astrojs/markdown-remark";
@@ -68,6 +69,9 @@ export default defineConfig({
           description:
             "Standalone CLI and MCP server for deterministic repository context.",
           promote: ["index*"],
+        }),
+        starlightContextualMenu({
+          actions: ["copy", "view"],
         }),
       ],
       social: [
