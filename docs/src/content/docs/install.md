@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Install context from the AUR or build it locally with Bun.
+description: Install context from the AUR or build it locally with mise.
 ---
 
 ## Arch Linux
@@ -13,11 +13,11 @@ yay -S context-git
 
 ## Build Locally
 
-Install dependencies and build the binary with Bun:
+Use the mise tasks to install dependencies and build the binary:
 
 ```bash
-bun install
-bun run build
+mise run install
+mise run build
 ```
 
 The compiled binary is written to `dist/context`.
