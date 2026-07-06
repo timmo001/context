@@ -192,31 +192,11 @@ export const cliCommands: readonly CliCommandSpec[] = [
     ],
   },
   {
-    name: "opencode-debug",
-    summary: "Run OpenCode debug commands",
-    usage: "[options]",
-    description: [
-      "Run OpenCode debug paths, config, skill, and info, returning one combined report. Optionally inspect a named agent.",
-    ],
-    options: [
-      {
-        name: "--agent",
-        valueName: "name",
-        description: "Also run opencode debug agent <name>",
-      },
-      helpOption,
-    ],
-    examples: [
-      "context opencode-debug",
-      "context opencode-debug --agent reviewer",
-    ],
-  },
-  {
     name: "mcp",
     summary: "Run the context MCP server over stdio",
     usage: "[options]",
     description: [
-      "Start a Model Context Protocol server exposing git_context, stack_context, command_help, and opencode_debug tools plus read-only context resources.",
+      "Start a Model Context Protocol server exposing git_context, stack_context, and command_help tools plus read-only context resources.",
     ],
     options: [helpOption],
     examples: ["context mcp"],
@@ -251,7 +231,6 @@ export const cliCommands: readonly CliCommandSpec[] = [
         choices: [
           { value: "git" },
           { value: "stack" },
-          { value: "opencode-debug" },
           { value: "mcp" },
           { value: "completions" },
         ],

@@ -104,29 +104,6 @@ context stack --json
 context stack ~/projects/app
 ```
 
-## `context opencode-debug`
-
-Run OpenCode debug commands
-
-```text
-context opencode-debug [options]
-```
-
-Run OpenCode debug paths, config, skill, and info, returning one combined report. Optionally inspect a named agent.
-
-**Options**
-
-| Option             | Description                          |
-| ------------------ | ------------------------------------ |
-| `--agent` `<name>` | Also run opencode debug agent <name> |
-
-**Examples**
-
-```bash
-context opencode-debug
-context opencode-debug --agent reviewer
-```
-
 ## `context mcp`
 
 Run the context MCP server over stdio
@@ -135,7 +112,7 @@ Run the context MCP server over stdio
 context mcp
 ```
 
-Start a Model Context Protocol server exposing git_context, stack_context, command_help, and opencode_debug tools plus read-only context resources.
+Start a Model Context Protocol server exposing git_context, stack_context, and command_help tools plus read-only context resources.
 
 **Examples**
 
@@ -177,9 +154,9 @@ context help [command]
 
 **Arguments**
 
-| Argument    | Description                                                                                        |
-| ----------- | -------------------------------------------------------------------------------------------------- |
-| `<command>` | Optional command to show help for. One of: `git`, `stack`, `opencode-debug`, `mcp`, `completions`. |
+| Argument    | Description                                                                      |
+| ----------- | -------------------------------------------------------------------------------- |
+| `<command>` | Optional command to show help for. One of: `git`, `stack`, `mcp`, `completions`. |
 
 **Examples**
 

@@ -45,13 +45,3 @@ CLI equivalent: `context help [name]`
 | Parameter | Type   | Default | CLI      | Description                        |
 | --------- | ------ | ------- | -------- | ---------------------------------- |
 | `name`    | string |         | `[name]` | Optional command to scope help to. |
-
-## `opencode_debug`
-
-Run OpenCode debug commands and return their combined output. Optionally inspect a configured agent by name.
-
-CLI equivalent: `context opencode-debug`
-
-| Parameter | Type   | Default | CLI              | Description                     |
-| --------- | ------ | ------- | ---------------- | ------------------------------- |
-| `agent`   | string |         | `--agent <name>` | Optional agent name to inspect. |

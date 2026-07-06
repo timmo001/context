@@ -18,7 +18,6 @@ import {
   stackContextRaw,
   stackContextRawJson,
 } from "./stack/commands/Context.js";
-import { opencodeDebugRaw } from "./commands/OpencodeDebug.js";
 import { CommandExecutor } from "./services/CommandExecutor.js";
 import { GitHub } from "./git/services/GitHub.js";
 import { mcpServer, mcpTeardown } from "./mcp/commands/Mcp.js";
@@ -139,8 +138,6 @@ if (command === "mcp") {
         return runGit(parsed.rest);
       case "stack":
         return runStack(parsed.rest);
-      case "opencode-debug":
-        return opencodeDebugRaw(optionValue(parsed.rest, "--agent"));
       case "completions":
         return runCompletions(parsed.rest);
       case "help":

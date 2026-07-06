@@ -3,6 +3,8 @@ title: Quick Start
 description: Run the core context CLI commands and MCP server.
 ---
 
+Install `context` first, or build locally and substitute `./dist/context` for `context` in the examples below.
+
 Use `context git` to inspect the current repository state:
 
 ```bash
@@ -23,7 +25,7 @@ Start the MCP server over stdio:
 context mcp
 ```
 
-The MCP server exposes the same producers through `git_context`, `stack_context`, `command_help`, and `opencode_debug` tools.
+The MCP server exposes the same producers through `git_context`, `stack_context`, and `command_help` tools.
 
 ## Next Steps
 

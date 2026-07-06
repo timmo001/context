@@ -10,7 +10,6 @@ The `context` CLI is the direct interface to the same producers exposed through 
 ```bash
 context git
 context stack
-context opencode-debug
 context mcp
 ```
 

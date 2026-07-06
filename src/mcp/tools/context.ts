@@ -10,7 +10,6 @@ import {
 } from "../../stack/commands/Context.js";
 import { GitHub } from "../../git/services/GitHub.js";
 import { CommandExecutor } from "../../services/CommandExecutor.js";
-import { opencodeDebugText } from "../../commands/OpencodeDebug.js";
 import { mcpTools } from "../toolMetadata.js";
 import { makeToolRegistrar, READONLY_HINTS } from "./register.js";
 
@@ -33,10 +32,6 @@ const StackContextParams = Schema.Struct({
 
 const CommandHelpParams = Schema.Struct({
   name: Schema.optional(Schema.String),
-});
-
-const OpencodeDebugParams = Schema.Struct({
-  agent: Schema.optional(Schema.String),
 });
 
 function metadata(name: string) {
@@ -94,14 +89,5 @@ export const registerContextTools = Effect.gen(function* () {
     parameters: CommandHelpParams,
     annotations: READONLY_HINTS,
     handle: (params) => Effect.sync(() => renderHelp(params.name)),
-  });
-
-  const debugMeta = metadata("opencode_debug");
-  yield* register({
-    name: debugMeta.name,
-    description: debugMeta.description,
-    parameters: OpencodeDebugParams,
-    annotations: READONLY_HINTS,
-    handle: (params) => opencodeDebugText(executor, params.agent),
   });
 });

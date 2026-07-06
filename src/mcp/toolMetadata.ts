@@ -122,17 +122,4 @@ export const mcpTools: readonly McpToolMetadata[] = [
       },
     },
   },
-  {
-    name: "opencode_debug",
-    cli: "context opencode-debug",
-    description:
-      "Run OpenCode debug commands and return their combined output. Optionally inspect a configured agent by name.",
-    parameters: {
-      agent: {
-        type: "string",
-        description: "Optional agent name to inspect.",
-        cli: "--agent <name>",
-      },
-    },
-  },
 ];

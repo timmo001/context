@@ -6,7 +6,6 @@ const rootExamples = [
   "context git --diff             Include working-tree diffs",
   "context stack                  Tech stack context for agents",
   "context stack --json           Stack context JSON payload",
-  "context opencode-debug --agent reviewer",
   "context mcp                    MCP server over stdio",
 ];
 
