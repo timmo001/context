@@ -1,6 +1,6 @@
 ---
 title: Command Reference
-description: Every context command, alias, flag and example, generated from the CLI registry.
+description: Every context command, flag and example, generated from the CLI registry.
 sidebar:
   order: 2
 ---
@@ -10,8 +10,6 @@ sidebar:
 This page lists every `context` command, generated from the same registry that powers `context help`.
 
 ## `context git`
-
-Aliases: `context git-context`
 
 Show branch context for the current repository
 
@@ -66,8 +64,6 @@ context git --since "2 days ago"
 ```
 
 ## `context stack`
-
-Aliases: `context stack-context`
 
 Detect the tech stack of a directory for agents
 

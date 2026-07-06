@@ -50,8 +50,6 @@ export interface CliCommandSpec {
   readonly name: string;
   /** Human-readable summary for command listings. */
   readonly summary: string;
-  /** Aliases accepted by the CLI. */
-  readonly aliases?: readonly string[];
   /** Usage suffix after `context <name>`. */
   readonly usage?: string;
   /** Long description paragraphs. */
@@ -85,7 +83,6 @@ const jsonOption = {
 export const cliCommands: readonly CliCommandSpec[] = [
   {
     name: "git",
-    aliases: ["git-context"],
     summary: "Show branch context for the current repository",
     usage: "[options]",
     description: [
@@ -164,7 +161,6 @@ export const cliCommands: readonly CliCommandSpec[] = [
   },
   {
     name: "stack",
-    aliases: ["stack-context"],
     summary: "Detect the tech stack of a directory for agents",
     usage: "[dir] [options]",
     description: [
@@ -266,14 +262,12 @@ export const cliCommands: readonly CliCommandSpec[] = [
   },
 ];
 
-/** All native command names and aliases. */
+/** All native command names. */
 export const nativeCommandNames: ReadonlySet<string> = new Set(
-  cliCommands.flatMap((command) => [command.name, ...(command.aliases ?? [])]),
+  cliCommands.map((command) => command.name),
 );
 
-/** Return a command by canonical name or alias. */
+/** Return a command by canonical name. */
 export function getCliCommand(name: string): CliCommandSpec | undefined {
-  return cliCommands.find(
-    (command) => command.name === name || command.aliases?.includes(name),
-  );
+  return cliCommands.find((command) => command.name === name);
 }

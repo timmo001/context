@@ -34,12 +34,8 @@ function zshQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function commandWords(command: CliCommandSpec): readonly string[] {
-  return [command.name, ...(command.aliases ?? [])];
-}
-
 function allCommandWords(): string {
-  return cliCommands.flatMap(commandWords).join(" ");
+  return cliCommands.map((command) => command.name).join(" ");
 }
 
 function optionWords(command: CliCommandSpec): string {
@@ -49,9 +45,7 @@ function optionWords(command: CliCommandSpec): string {
 }
 
 function commandForWord(word: string): CliCommandSpec | undefined {
-  return cliCommands.find(
-    (command) => command.name === word || command.aliases?.includes(word),
-  );
+  return cliCommands.find((command) => command.name === word);
 }
 
 function choiceWords(option: CliOptionSpec): string | undefined {
@@ -81,7 +75,7 @@ export function renderBashCompletions(): string {
   ];
 
   for (const command of cliCommands) {
-    lines.push(`    ${commandWords(command).join("|")})`);
+    lines.push(`    ${command.name})`);
     for (const option of command.options ?? []) {
       const choices = choiceWords(option);
       if (choices) {
@@ -126,14 +120,10 @@ export function renderFishCompletions(): string {
   ];
 
   for (const command of cliCommands) {
-    for (const word of commandWords(command)) {
-      const description =
-        word === command.name ? command.summary : `Alias for ${command.name}`;
-      lines.push(
-        `complete -c ${COMMAND_NAME} -n '__fish_use_subcommand' -a ${fishQuote(word)} -d ${fishQuote(description)}`,
-      );
-    }
-    const condition = `__fish_seen_subcommand_from ${commandWords(command).join(" ")}`;
+    lines.push(
+      `complete -c ${COMMAND_NAME} -n '__fish_use_subcommand' -a ${fishQuote(command.name)} -d ${fishQuote(command.summary)}`,
+    );
+    const condition = `__fish_seen_subcommand_from ${command.name}`;
     for (const option of command.options ?? []) {
       const parts = ["complete", "-c", COMMAND_NAME];
       if (option.short) parts.push("-s", option.short.slice(1));
@@ -179,11 +169,8 @@ export function renderZshCompletions(): string {
     "",
     `local -a ${COMMAND_NAME}_commands`,
     `${COMMAND_NAME}_commands=(`,
-    ...cliCommands.flatMap((command) =>
-      commandWords(command).map(
-        (word) =>
-          `  ${zshQuote(`${word}:${word === command.name ? command.summary : `Alias for ${command.name}`}`)}`,
-      ),
+    ...cliCommands.map(
+      (command) => `  ${zshQuote(`${command.name}:${command.summary}`)}`,
     ),
     ")",
     "",
@@ -197,7 +184,7 @@ export function renderZshCompletions(): string {
   ];
 
   for (const command of cliCommands) {
-    lines.push(`  ${commandWords(command).join("|")})`);
+    lines.push(`  ${command.name})`);
     lines.push("    _arguments -S \\");
     const options = (command.options ?? []).map(zshOption);
     const args = (command.arguments ?? []).map((argument, index) =>

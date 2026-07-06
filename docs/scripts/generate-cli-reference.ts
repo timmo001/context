@@ -70,11 +70,6 @@ function renderCommand(
   const fullName = `${prefix}${command.name}`.trim();
   push(`${heading} ${code(`context ${fullName}`)}`);
   push();
-  if (command.aliases?.length) {
-    const aliases = command.aliases.map((a) => code(`context ${a}`)).join(", ");
-    push(`Aliases: ${aliases}`);
-    push();
-  }
   push(command.summary);
   push();
   push("```text");
@@ -112,7 +107,7 @@ function renderCommand(
 push("---");
 push("title: Command Reference");
 push(
-  "description: Every context command, alias, flag and example, generated from the CLI registry.",
+  "description: Every context command, flag and example, generated from the CLI registry.",
 );
 push("sidebar:");
 push("  order: 2");

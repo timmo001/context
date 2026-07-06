@@ -58,9 +58,6 @@ function trimBlankTail(lines: string[]): string[] {
 
 function renderCommand(command: CliCommandSpec): string {
   const lines: string[] = [usageFor(command), ""];
-  if (command.aliases?.length) {
-    lines.push(`Aliases: ${command.aliases.join(", ")}`, "");
-  }
   if (command.description) lines.push(...command.description, "");
   if (command.modes)
     lines.push(...renderAligned("Modes", parseRows(command.modes)), "");
