@@ -20,7 +20,7 @@ export function handleCommandError(label: string) {
   return Effect.catch((error: unknown) =>
     Effect.sync(() => {
       console.error(`[${label}] ${formatCommandError(error)}`);
-      process.exit(1);
+      process.exitCode = 1;
     }),
   );
 }

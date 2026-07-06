@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { NodeRuntime } from "@effect/platform-node";
 import { renderHelp } from "./cli/help.js";
 import { getCliCommand, nativeCommandNames } from "./cli/spec.js";
@@ -29,6 +29,10 @@ type ParsedArgs = {
   readonly help: boolean;
 };
 
+class UsageError extends Schema.TaggedErrorClass<UsageError>()("UsageError", {
+  message: Schema.String,
+}) {}
+
 function parseArgs(args: readonly string[]): ParsedArgs {
   const [first, ...rest] = args;
   if (!first) return { command: undefined, rest: [], help: false };
@@ -43,9 +47,12 @@ function parseArgs(args: readonly string[]): ParsedArgs {
 }
 
 function failUsage(message: string): never {
-  console.error(message);
-  console.error("Run 'context --help' to see available commands.");
+  console.error(usageMessage(message));
   process.exit(1);
+}
+
+function usageMessage(message: string): string {
+  return `${message}\nRun 'context --help' to see available commands.`;
 }
 
 function sinceOption(args: readonly string[]): string | undefined {
@@ -141,9 +148,11 @@ if (command === "mcp") {
           console.log(renderHelp(helpCommandArg(parsed.rest)));
         });
       default:
-        return Effect.sync(() => {
-          failUsage(`context: unknown command '${command}'`);
-        });
+        return Effect.fail(
+          new UsageError({
+            message: usageMessage(`context: unknown command '${command}'`),
+          }),
+        );
     }
   })();
 
