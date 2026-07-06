@@ -18,6 +18,12 @@ This repo contains the standalone `context` CLI and MCP server.
 - Do not hand-edit generated docs pages.
 - Keep OpenCode plugin docs out of this repo except for links to `timmo001/opencode-config` or dotfiles integration notes at <https://dotfiles.timmo.dev/opencode/>.
 
+## Docs Dev Server
+
+- Use `mise run docs:dev:serve` to start the Astro docs dev server in background mode.
+- Use `mise run docs:dev:status`, `mise run docs:dev:logs`, and `mise run docs:dev:stop` to inspect or stop it.
+- Use `mise run docs:dev` only when foreground server output is explicitly needed.
+
 ## Validation
 
 Run these after source changes:

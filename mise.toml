@@ -58,6 +58,27 @@ depends = ["docs:install"]
 dir = "docs"
 run = "bun run dev"
 
+[tasks."docs:dev:serve"]
+description = "Run docs dev server in the background"
+depends = ["docs:install"]
+dir = "docs"
+run = "bun run gen && bunx astro dev --background"
+
+[tasks."docs:dev:status"]
+description = "Show docs dev server status"
+dir = "docs"
+run = "bunx astro dev status"
+
+[tasks."docs:dev:logs"]
+description = "Show docs dev server logs"
+dir = "docs"
+run = "bunx astro dev logs"
+
+[tasks."docs:dev:stop"]
+description = "Stop docs dev server"
+dir = "docs"
+run = "bunx astro dev stop"
+
 [tasks."docs:build"]
 description = "Build docs site"
 depends = ["docs:install"]
