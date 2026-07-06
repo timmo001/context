@@ -32,11 +32,11 @@ jobs:
 
       - name: Validate pkgbuild with Arch Linux container
         run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace archlinux:latest bash -c "
+          docker run --rm -v ${{ github.workspace }}:/workspace archlinux:latest bash -lc '
             pacman -Sy --noconfirm namcap
             cd /workspace
-            for pkgbuild in \\$(find .scripts -name 'PKGBUILD*'); do
-              echo \"Validating \\$pkgbuild\"
-              namcap \"\\$pkgbuild\"
+            find .scripts -name "PKGBUILD*" -print0 | while IFS= read -r -d "" pkgbuild; do
+              echo "Validating $pkgbuild"
+              namcap "$pkgbuild"
             done
-          "
+          '
