@@ -8,4 +8,4 @@ prefer tools and resources.
 
 Full setup, CLI reference, MCP usage, and integration docs are published at <https://context.timmo.dev>.
 
-On Arch, install `context-git` from the AUR. For local development, run `mise run install` and `mise run build`.
+On Arch, install `context-git` from the AUR. For local development, run `mise run install` and `mise run build`, then use `dist/context`.

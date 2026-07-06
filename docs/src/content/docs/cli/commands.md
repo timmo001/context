@@ -132,7 +132,7 @@ context opencode-debug --agent reviewer
 Run the context MCP server over stdio
 
 ```text
-context mcp [options]
+context mcp
 ```
 
 Start a Model Context Protocol server exposing git_context, stack_context, command_help, and opencode_debug tools plus read-only context resources.
@@ -177,9 +177,9 @@ context help [command]
 
 **Arguments**
 
-| Argument    | Description                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------------- |
-| `<command>` | Optional command to show help for One of: `git`, `stack`, `opencode-debug`, `mcp`, `completions`. |
+| Argument    | Description                                                                                        |
+| ----------- | -------------------------------------------------------------------------------------------------- |
+| `<command>` | Optional command to show help for. One of: `git`, `stack`, `opencode-debug`, `mcp`, `completions`. |
 
 **Examples**
 

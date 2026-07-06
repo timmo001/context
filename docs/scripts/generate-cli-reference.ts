@@ -54,7 +54,7 @@ function renderArguments(args: readonly CliArgumentSpec[]): void {
     if (arg.repeatable) desc += desc ? " (repeatable)" : "Repeatable.";
     if (arg.choices?.length) {
       const values = arg.choices.map((c) => code(c.value)).join(", ");
-      desc += `${desc ? " " : ""}One of: ${values}.`;
+      desc += `${desc && !/[.!?)]$/.test(desc) ? "." : ""}${desc ? " " : ""}One of: ${values}.`;
     }
     push(`| ${code(`<${arg.name}>`)} | ${desc.trim()} |`);
   }
@@ -68,12 +68,17 @@ function renderCommand(
 ): void {
   const heading = "#".repeat(depth);
   const fullName = `${prefix}${command.name}`.trim();
+  const visibleOptions =
+    command.options?.filter((o) => o.name !== "--help") ?? [];
+  const usage = visibleOptions.length
+    ? command.usage
+    : command.usage?.replace(/\s*\[options\]/g, "");
   push(`${heading} ${code(`context ${fullName}`)}`);
   push();
   push(command.summary);
   push();
   push("```text");
-  push(`context ${fullName}${command.usage ? ` ${command.usage}` : ""}`);
+  push(`context ${fullName}${usage ? ` ${usage}` : ""}`);
   push("```");
   push();
   if (command.description?.length) {

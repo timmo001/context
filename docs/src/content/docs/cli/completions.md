@@ -8,9 +8,10 @@ sidebar:
 `context` can print completion scripts for Bash, Fish, and Zsh:
 
 ```bash
+context completions
 context completions bash
 context completions fish
 context completions zsh
 ```
 
-Install the generated scripts into the shell-specific completion directories for your package or environment.
+With no shell argument, `context completions` prints Zsh completions. The Arch packages install Bash, Fish, and Zsh completions automatically. For a local binary, write the generated script into the shell-specific completion directory for your environment.
