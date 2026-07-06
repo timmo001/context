@@ -3,6 +3,7 @@ dist/
 dist-ts/
 docs/dist/
 docs/.astro/
+.opencode/references/
 .env
 .env.*
 !.env.example
