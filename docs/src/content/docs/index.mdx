@@ -1,44 +1,77 @@
 ---
 title: Context
 description: Standalone CLI and MCP server for deterministic repository context.
+template: splash
+hero:
+  title: Context
+  tagline: One command for deterministic repository context.
+  image:
+    file: ../../assets/logo.svg
+    alt: Context logo
+  actions:
+    - text: Install
+      link: /install/
+      icon: right-arrow
+    - text: Quick start
+      link: /quick-start/
+      icon: open-book
+      variant: minimal
+    - text: View on GitHub
+      link: https://github.com/timmo001/context
+      icon: external
+      variant: minimal
+      attrs:
+        rel: me
 ---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
 `context` gives agents and humans one command for the repository facts they usually gather with many shell calls.
 
-It has two producers:
+<CardGrid stagger>
+  <Card title="Git context" icon="code-branch">
+    Branch, pull request, working-tree, diff, and recent-commit context in one
+    deterministic snapshot.
+  </Card>
+  <Card title="Stack detection" icon="magnifier">
+    Language, ecosystem, tooling, and framework detection from repository files,
+    with no LLM and no external scanners.
+  </Card>
+  <Card title="MCP server" icon="server">
+    The same producers exposed over stdio as read-only MCP tools and resources
+    for agent harnesses.
+  </Card>
+  <Card title="Generated references" icon="open-book">
+    CLI help, shell completions, and MCP tool docs generated from the same
+    source metadata.
+  </Card>
+</CardGrid>
 
-- `context git` for branch, PR, working-tree, diff, and recent-commit context.
-- `context stack` for deterministic language, ecosystem, tooling, and framework detection.
+## Start Here
 
-The same producers are exposed through `context mcp`, so agent harnesses can call `git_context`, `stack_context`, `command_help`, and `opencode_debug` as MCP tools.
+<CardGrid>
+  <LinkCard
+    title="Install"
+    href="/install/"
+    description="Install from the AUR or build the binary locally with Bun."
+  />
+  <LinkCard
+    title="Quick Start"
+    href="/quick-start/"
+    description="Run the core CLI commands and start the MCP server."
+  />
+  <LinkCard
+    title="CLI"
+    href="/cli/"
+    description="Use context directly from a terminal or script."
+  />
+  <LinkCard
+    title="MCP Server"
+    href="/mcp/"
+    description="Expose context to MCP-compatible agents over stdio."
+  />
+</CardGrid>
 
-## Install
-
-On Arch, install the `context-git` AUR package:
-
-```bash
-yay -S context-git
-```
-
-Build the binary locally with Bun:
-
-```bash
-bun install
-bun run build
-```
-
-The compiled binary is written to `dist/context`.
-
-## Quick Start
-
-```bash
-context git
-context git --json
-context stack
-context stack --json
-context mcp
-```
-
-## Documentation Split
+## Documentation Scope
 
 Generic CLI and MCP behaviour lives here. OpenCode plugins that inject this context into sessions live in [`timmo001/opencode-config`](https://github.com/timmo001/opencode-config), with dotfiles-specific integration notes in the [dotfiles docs](https://dotfiles.timmo.dev/opencode/).

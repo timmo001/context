@@ -79,6 +79,8 @@ export default defineConfig({
       ],
       sidebar: [
         { label: "Overview", link: "/" },
+        { label: "Install", link: "/install/" },
+        { label: "Quick Start", link: "/quick-start/" },
         {
           label: "CLI",
           items: [{ autogenerate: { directory: "cli" } }],
