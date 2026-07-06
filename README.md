@@ -7,3 +7,5 @@ context. It provides a CLI for direct use and an MCP server for harnesses that
 prefer tools and resources.
 
 Full setup, CLI reference, MCP usage, and integration docs are published at <https://context.timmo.dev>.
+
+On Arch, install `context-git` from the AUR. For local development, run `bun install` and `bun run build`.

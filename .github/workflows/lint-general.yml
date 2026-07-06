@@ -24,3 +24,9 @@ jobs:
 
   markdown-links:
     uses: timmo001/workflows/.github/workflows/lint-markdown-links.yml@3144e6b0d5a1408fdda4b14127b592124ad4dea7 # master
+
+  shellcheck:
+    uses: timmo001/workflows/.github/workflows/lint-shellcheck.yml@3144e6b0d5a1408fdda4b14127b592124ad4dea7 # master
+    with:
+      scandir: ./.scripts
+      severity: warning

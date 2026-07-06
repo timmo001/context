@@ -1,0 +1,42 @@
+---
+name: Lint package configs
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".scripts/**/*PKGBUILD*"
+      - ".github/workflows/lint-package-config.yml"
+  pull_request:
+    paths:
+      - ".scripts/**/*PKGBUILD*"
+      - ".github/workflows/lint-package-config.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-arch-pkgbuild:
+    name: Lint arch pkgbuild
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Validate pkgbuild with Arch Linux container
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace archlinux:latest bash -c "
+            pacman -Sy --noconfirm namcap
+            cd /workspace
+            for pkgbuild in \\$(find .scripts -name 'PKGBUILD*'); do
+              echo \"Validating \\$pkgbuild\"
+              namcap \"\\$pkgbuild\"
+            done
+          "

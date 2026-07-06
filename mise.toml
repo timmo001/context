@@ -18,6 +18,16 @@ description = "Compile the context binary"
 depends = ["install"]
 run = "bun run build"
 
+[tasks."package:arch"]
+description = "Create an Arch Linux package"
+depends = ["build"]
+run = '''
+VERSION="0.1.0.r$(git rev-list --count HEAD).g$(git rev-parse --short=7 HEAD)"
+export VERSION
+chmod +x ./.scripts/linux/create-arch.sh
+./.scripts/linux/create-arch.sh
+'''
+
 [tasks.typecheck]
 description = "Type-check the context source"
 depends = ["install"]

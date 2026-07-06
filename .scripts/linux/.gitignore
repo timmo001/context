@@ -1,0 +1,8 @@
+# Ignore PKGBUILD build artifacts (for local testing)
+pkg/
+src/
+*.tar.gz
+*.tar.xz
+*.tar.zst
+.SRCINFO
+context-git/
