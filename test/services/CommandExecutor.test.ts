@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -54,6 +54,28 @@ function exitCodeFailure(
             onSuccess: () => undefined,
           }),
         );
+    }).pipe(Effect.provide(CommandExecutor.layer)),
+  );
+}
+
+function exitCode(args: readonly string[], opts?: CommandExitCodeOptions) {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const executor = yield* CommandExecutor;
+      return yield* executor.exitCode(
+        process.execPath,
+        [helper, ...args],
+        opts,
+      );
+    }).pipe(Effect.provide(CommandExecutor.layer)),
+  );
+}
+
+function spawnFailure(command: string) {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const executor = yield* CommandExecutor;
+      return yield* executor.run(command, []).pipe(Effect.flip);
     }).pipe(Effect.provide(CommandExecutor.layer)),
   );
 }
@@ -119,6 +141,55 @@ describe("CommandExecutor", () => {
 
     expect(error?.reason).toBe("output_limit");
     expect(error?.stdout.length).toBe(maxOutputBytes);
+  });
+
+  test("enforces the stdout stream cap independently", async () => {
+    const error = await runFailure(["stdout", "1024"], {
+      maxOutputBytes: 4096,
+      maxStdoutBytes: 64,
+    });
+
+    expect(error?.reason).toBe("output_limit");
+    expect(error?.stdout).toHaveLength(64);
+    expect(error?.stderr).toBe("");
+  });
+
+  test("enforces the stderr stream cap independently", async () => {
+    const error = await runFailure(["stderr", "1024"], {
+      maxOutputBytes: 4096,
+      maxStderrBytes: 64,
+    });
+
+    expect(error?.reason).toBe("output_limit");
+    expect(error?.stdout).toBe("");
+    expect(error?.stderr).toHaveLength(64);
+  });
+
+  test("maps spawn failures to command errors", async () => {
+    const command = `context-command-${crypto.randomUUID()}`;
+    const error = await spawnFailure(command);
+
+    expect(error).toMatchObject({
+      _tag: "CommandError",
+      command,
+      exitCode: -1,
+      reason: "spawn",
+      stdout: "",
+    });
+    expect(error.stderr.length).toBeGreaterThan(0);
+  });
+
+  test("forwards the working directory", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "context-command-cwd-"));
+    try {
+      expect(await run(["cwd"], { cwd: directory })).toBe(directory);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("returns non-zero exit codes without failing", async () => {
+    expect(await exitCode(["nonzero"])).toBe(7);
   });
 
   test("bounds exit-code-only commands", async () => {

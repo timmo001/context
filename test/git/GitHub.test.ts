@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 import {
   CommandError,
   CommandExecutor,
@@ -76,6 +77,32 @@ describe("GitHub", () => {
     expect(commands).toHaveLength(2);
   });
 
+  test("rejects an exhausted rate limit before running the command", async () => {
+    const commands: string[][] = [];
+    const github = await makeGitHub((_cmd, args) => {
+      commands.push([...args]);
+      return Effect.succeed("0\t9999999999\n");
+    });
+
+    const error = await Effect.runPromise(
+      github.run(["pr", "view"]).pipe(Effect.flip),
+    );
+
+    expect(error).toMatchObject({
+      _tag: "GitHubError",
+      command: "gh pr view",
+      exitCode: 1,
+      reason: "exit",
+      stdout: "",
+      retryable: false,
+      rateLimited: true,
+    });
+    expect(error.stderr).toContain(
+      "GitHub REST API rate limit exhausted; resets at",
+    );
+    expect(commands).toHaveLength(1);
+  });
+
   test("can bypass rate-limit checks", async () => {
     const commands: string[][] = [];
     const github = await makeGitHub((_cmd, args) => {
@@ -119,6 +146,75 @@ describe("GitHub", () => {
       retryable: true,
       rateLimited: true,
     });
+  });
+
+  test("does not retry permanent command failures", async () => {
+    let attempts = 0;
+    const github = await makeGitHub(() => {
+      attempts += 1;
+      return Effect.fail(commandError("authentication failed"));
+    });
+
+    const error = await Effect.runPromise(
+      github
+        .run(["pr", "view"], { checkRateLimit: false, retries: 2 })
+        .pipe(Effect.flip),
+    );
+
+    expect(attempts).toBe(1);
+    expect(error).toMatchObject({
+      retryable: false,
+      rateLimited: false,
+      stderr: "authentication failed",
+    });
+  });
+
+  test("retries transient command failures", async () => {
+    let attempts = 0;
+    const github = await makeGitHub(() => {
+      attempts += 1;
+      return attempts === 1
+        ? Effect.fail(commandError("HTTP 503 temporarily unavailable"))
+        : Effect.succeed("result");
+    });
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* github
+          .run(["pr", "view"], { checkRateLimit: false, retries: 1 })
+          .pipe(Effect.forkChild);
+        yield* TestClock.adjust("1 second");
+        return yield* Fiber.join(fiber);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    expect(result).toBe("result");
+    expect(attempts).toBe(2);
+  });
+
+  test("invalidates the cached snapshot after a rate-limited command", async () => {
+    let rateLimitChecks = 0;
+    let commands = 0;
+    const github = await makeGitHub((_cmd, args) => {
+      if (args[0] === "api" && args[1] === "rate_limit") {
+        rateLimitChecks += 1;
+        return Effect.succeed("100\t9999999999\n");
+      }
+      commands += 1;
+      return commands === 1
+        ? Effect.fail(commandError("API rate limit exceeded"))
+        : Effect.succeed("result");
+    });
+
+    await Effect.runPromise(
+      github.run(["pr", "view"], { retries: 0 }).pipe(Effect.flip),
+    );
+    expect(
+      await Effect.runPromise(github.run(["pr", "view"], { retries: 0 })),
+    ).toBe("result");
+
+    expect(rateLimitChecks).toBe(2);
+    expect(commands).toBe(2);
   });
 
   test("reports invalid JSON as a non-retryable GitHub error", async () => {

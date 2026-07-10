@@ -42,6 +42,12 @@ switch (mode) {
   case "stdout":
     await writeBytes(process.stdout, "x", bytes);
     break;
+  case "stderr":
+    await writeBytes(process.stderr, "x", bytes);
+    break;
+  case "cwd":
+    process.stdout.write(process.cwd());
+    break;
   default:
     throw new Error(`Unknown helper mode: ${mode ?? ""}`);
 }

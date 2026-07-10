@@ -84,7 +84,242 @@ async function withRepository(run: (repository: string) => Promise<void>) {
   }
 }
 
+function configureResolvedOrigin(repository: string) {
+  git(repository, ["remote", "add", "origin", repository]);
+  git(repository, ["update-ref", "refs/remotes/origin/trunk", "HEAD"]);
+  git(repository, [
+    "symbolic-ref",
+    "refs/remotes/origin/HEAD",
+    "refs/remotes/origin/trunk",
+  ]);
+}
+
 describe("buildBranchContext", () => {
+  test("returns minimal context outside a git worktree", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "context-not-git-"));
+    try {
+      expect(
+        await collect(directory, repoExecutor(directory), unusedGitHub),
+      ).toEqual({
+        inRepo: false,
+        pullRequest: null,
+        warnings: [],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("models the resolved default branch and skips pull requests", async () => {
+    await withRepository(async (repository) => {
+      configureResolvedOrigin(repository);
+      let githubCalled = false;
+      const github: GitHubService = {
+        run: () => {
+          githubCalled = true;
+          return Effect.succeed("");
+        },
+        json: () => {
+          githubCalled = true;
+          return Effect.succeed({});
+        },
+      };
+
+      const context = await collect(
+        repository,
+        repoExecutor(repository),
+        github,
+      );
+
+      expect(context.branchMetadata).toMatchObject({
+        currentBranch: "trunk",
+        defaultRemote: "origin",
+        defaultBranch: "trunk",
+        baseRef: "origin/trunk",
+        ahead: 0,
+        behind: 0,
+        onDefaultBranch: true,
+      });
+      expect(context.workScope).toEqual({
+        state: "not-applicable",
+        reason: "default-branch",
+      });
+      expect(context.pullRequest).toBeNull();
+      expect(githubCalled).toBe(false);
+    });
+  });
+
+  test("separates feature scope from upstream push status", async () => {
+    await withRepository(async (repository) => {
+      configureResolvedOrigin(repository);
+      git(repository, ["switch", "-qc", "feature"]);
+      await writeFile(join(repository, "pushed.txt"), "pushed\n");
+      git(repository, ["add", "pushed.txt"]);
+      git(repository, ["commit", "-qm", "pushed feature work"]);
+      git(repository, ["update-ref", "refs/remotes/origin/feature", "HEAD"]);
+      git(repository, ["branch", "--set-upstream-to=origin/feature"]);
+      await writeFile(join(repository, "local.txt"), "local\n");
+      git(repository, ["add", "local.txt"]);
+      git(repository, ["commit", "-qm", "local feature work"]);
+
+      const context = await collect(
+        repository,
+        repoExecutor(repository),
+        unusedGitHub,
+        { pullRequest: false },
+      );
+
+      expect(context.branchMetadata).toMatchObject({
+        currentBranch: "feature",
+        defaultBranch: "trunk",
+        baseRef: "origin/feature",
+        upstreamRef: "origin/feature",
+        ahead: 1,
+        behind: 0,
+        onDefaultBranch: false,
+      });
+      expect(context.workScope).toMatchObject({
+        state: "collected",
+        baseRef: "origin/trunk",
+      });
+      expect(context.commits?.range).toEqual({
+        args: ["origin/trunk..HEAD"],
+        kind: "branch",
+        sinceRef: "origin/trunk",
+      });
+      expect(context.commits?.records.map((record) => record.pushed)).toEqual([
+        false,
+        true,
+      ]);
+    });
+  });
+
+  test("sanitises credentials from remote details", async () => {
+    await withRepository(async (repository) => {
+      configureResolvedOrigin(repository);
+      git(repository, [
+        "remote",
+        "set-url",
+        "origin",
+        "https://user:secret@example.invalid/repo.git",
+      ]);
+      git(repository, [
+        "remote",
+        "set-url",
+        "--push",
+        "origin",
+        "https://push:secret@example.invalid/repo.git",
+      ]);
+
+      const context = await collect(
+        repository,
+        repoExecutor(repository),
+        unusedGitHub,
+        { remoteDetails: true },
+      );
+
+      expect(context.branchMetadata?.remoteDetails).toEqual([
+        {
+          name: "origin",
+          fetchUrl: "https://example.invalid/repo.git",
+          pushUrl: "https://example.invalid/repo.git",
+        },
+      ]);
+    });
+  });
+
+  test("collects committed and working-tree changes in the branch diff", async () => {
+    await withRepository(async (repository) => {
+      configureResolvedOrigin(repository);
+      git(repository, ["switch", "-qc", "feature"]);
+      await writeFile(join(repository, "feature.txt"), "committed\n");
+      git(repository, ["add", "feature.txt"]);
+      git(repository, ["commit", "-qm", "feature work"]);
+      await writeFile(join(repository, "feature.txt"), "committed\nworking\n");
+
+      const context = await collect(
+        repository,
+        repoExecutor(repository),
+        unusedGitHub,
+        { branchDiff: true, pullRequest: false },
+      );
+
+      expect(context.diffs?.branch).toMatchObject({
+        ref: "origin/trunk",
+        mergeBase: expect.stringMatching(/^[0-9a-f]{7}$/),
+      });
+      expect(context.diffs?.branch?.diff).toContain("diff --git");
+      expect(context.diffs?.branch?.diff).toContain("+committed");
+      expect(context.diffs?.branch?.diff).toContain("+working");
+    });
+  });
+
+  test("rejects branch diffs on the default branch", async () => {
+    await withRepository(async (repository) => {
+      configureResolvedOrigin(repository);
+
+      await expect(
+        collect(repository, repoExecutor(repository), unusedGitHub, {
+          branchDiff: true,
+        }),
+      ).rejects.toThrow(
+        "On the default branch (trunk); --branch-diff requires a feature branch.",
+      );
+    });
+  });
+
+  test("fails clearly when ahead and behind counts are malformed", async () => {
+    await withRepository(async (repository) => {
+      configureResolvedOrigin(repository);
+      const executor = repoExecutor(repository, (cmd, args, opts) => {
+        if (
+          cmd === "git" &&
+          args[0] === "rev-list" &&
+          args[1] === "--left-right"
+        ) {
+          return Effect.succeed("bad data\n");
+        }
+        return liveExecutor.run(cmd, args, opts);
+      });
+
+      await expect(collect(repository, executor)).rejects.toThrow(
+        "Unable to parse ahead/behind counts for 'origin/trunk'.",
+      );
+    });
+  });
+
+  test("models detached HEAD without attempting pull request collection", async () => {
+    await withRepository(async (repository) => {
+      configureResolvedOrigin(repository);
+      git(repository, ["checkout", "-q", "--detach"]);
+      let githubCalled = false;
+      const github: GitHubService = {
+        run: () => {
+          githubCalled = true;
+          return Effect.succeed("");
+        },
+        json: () => {
+          githubCalled = true;
+          return Effect.succeed({});
+        },
+      };
+
+      const context = await collect(
+        repository,
+        repoExecutor(repository),
+        github,
+      );
+
+      expect(context.branchMetadata).toMatchObject({
+        currentBranch: "",
+        defaultBranch: "trunk",
+        onDefaultBranch: false,
+      });
+      expect(context.pullRequest).toBeNull();
+      expect(githubCalled).toBe(false);
+    });
+  });
+
   test("models an unavailable remote HEAD without assuming main", async () => {
     await withRepository(async (repository) => {
       git(repository, [
