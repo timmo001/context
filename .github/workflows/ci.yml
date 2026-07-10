@@ -13,6 +13,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build
@@ -74,14 +77,12 @@ jobs:
 
           echo "app_changed=$app_changed" >> "$GITHUB_OUTPUT"
 
-  update-aur:
-    name: Update AUR (context-git)
+  prepare-aur:
+    name: Prepare AUR package (context-git)
     runs-on: ubuntu-latest
     needs:
       - build
       - aur-changes
-    container:
-      image: ghcr.io/timmo001/system-bridge/ci-build-arch:latest@sha256:1364e8914df024999f31dce77b2fbeb7103d543a4f3b40df8d6237078ad05e5d
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.aur-changes.outputs.app_changed == 'true'
     steps:
       - name: Checkout repository
@@ -92,27 +93,29 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566
 
-      - name: Test build
-        run: |
-          git config --global --add safe.directory "$(pwd)"
-          mise run build
+      - name: Prepare AUR package files
+        run: .scripts/linux/prepare-aur.sh "${{ runner.temp }}/aur-package"
 
-      - name: Test AUR package
-        run: |
-          sudo pacman -Syu --noconfirm --needed base-devel git bun namcap
-          chown -R builduser:builduser "$(pwd)"
-          sudo -u builduser -H bash -lc 'cd "$1" && BUILDDIR=/tmp/context-makepkg makepkg --syncdeps --noconfirm --cleanbuild --clean' _ "$(pwd)/.scripts/linux"
-          namcap .scripts/linux/*.pkg.tar.zst
+      - name: Upload AUR package files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: aur-context-git-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aur-package
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Update AUR package
-        env:
-          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_WORKSPACE: ${{ github.workspace }}
-        run: |
-          chmod +x ./.scripts/linux/update-aur.sh
-          if [ "$(id -u)" -eq 0 ] && id -u builduser >/dev/null 2>&1; then
-            chown -R builduser:builduser "$(pwd)"
-            exec sudo --preserve-env=CI,AUR_SSH_PRIVATE_KEY,GITHUB_SHA,GITHUB_WORKSPACE -u builduser -H bash ./.scripts/linux/update-aur.sh
-          fi
-          .scripts/linux/update-aur.sh
+  update-aur:
+    name: Update AUR (context-git)
+    needs:
+      - aur-changes
+      - prepare-aur
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.aur-changes.outputs.app_changed == 'true'
+    permissions:
+      contents: read
+    uses: timmo001/workflows/.github/workflows/publish-aur.yml@b1d37bf9247fadf3209395cd6bdcbd55c9989370 # master
+    with:
+      package-name: context-git
+      artifact-name: aur-context-git-${{ github.run_id }}-${{ github.run_attempt }}
+      pkgbuild-path: PKGBUILD
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
