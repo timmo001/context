@@ -374,7 +374,7 @@ export interface TextToolingRule extends ToolingRule {
   readonly pkg: string;
 }
 
-/** Tooling rules for ecosystems where manifests are scanned as text. */
+/** Tooling rules for ecosystems with focused declared-dependency parsers. */
 export const TEXT_TOOLING: readonly TextToolingRule[] = [
   {
     name: "pytest",
@@ -454,8 +454,8 @@ export const FRAMEWORK_INDEX: ReadonlyMap<string, FrameworkRule> = new Map(
   FRAMEWORKS.map((rule) => [`${rule.eco}:${rule.pkg}`, rule]),
 );
 
-/** Ecosystems whose framework rules are matched by scanning manifest text. */
-export const TEXT_SCANNED_ECOSYSTEMS: readonly string[] = [
+/** Ecosystems whose framework rules use focused declared-dependency parsers. */
+export const PARSED_DEPENDENCY_ECOSYSTEMS: readonly string[] = [
   "go",
   "cargo",
   "python",

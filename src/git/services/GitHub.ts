@@ -23,6 +23,8 @@ class GitHubError extends Schema.TaggedErrorClass<GitHubError>()(
   {
     command: Schema.String,
     exitCode: Schema.Number,
+    reason: Schema.Literals(["spawn", "exit", "timeout", "output_limit"]),
+    stdout: Schema.String,
     stderr: Schema.String,
     retryable: Schema.Boolean,
     rateLimited: Schema.Boolean,
@@ -114,6 +116,8 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
         return yield* new GitHubError({
           command: formatGhCommand(args),
           exitCode: 1,
+          reason: "exit",
+          stdout: "",
           stderr: `GitHub REST API rate limit exhausted; resets at ${new Date(snapshot.resetEpochSeconds * 1000).toISOString()}`,
           retryable: false,
           rateLimited: true,
@@ -178,6 +182,8 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
                 new GitHubError({
                   command: formatGhCommand(args),
                   exitCode: 1,
+                  reason: "exit",
+                  stdout: output,
                   stderr:
                     error instanceof Error ? error.message : String(error),
                   retryable: false,
@@ -213,12 +219,15 @@ function toGitHubError(
   args: readonly string[],
   error: CommandError,
 ): GitHubError {
-  const rateLimited = isRateLimitMessage(error.stderr);
+  const diagnostic = `${error.stderr}\n${error.stdout}`;
+  const rateLimited = isRateLimitMessage(diagnostic);
   return new GitHubError({
     command: formatGhCommand(args),
     exitCode: error.exitCode,
+    reason: error.reason,
+    stdout: error.stdout,
     stderr: error.stderr,
-    retryable: rateLimited || isTransientMessage(error.stderr),
+    retryable: rateLimited || isTransientMessage(diagnostic),
     rateLimited,
   });
 }

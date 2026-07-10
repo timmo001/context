@@ -1,7 +1,7 @@
 /** A resolved default remote plus the full list of configured remotes. */
 export interface ResolvedRemote {
-  /** Chosen remote name (upstream > origin > first available > origin). */
-  readonly remote: string;
+  /** Chosen remote name (upstream > origin > first available), if configured. */
+  readonly remote: string | null;
   /** All configured remote names, in `git remote` order. */
   readonly remotes: readonly string[];
 }
@@ -16,14 +16,13 @@ export function resolveDefaultRemote(remotesOutput: string): ResolvedRemote {
     ? "upstream"
     : remotes.includes("origin")
       ? "origin"
-      : remotes[0] || "origin";
+      : (remotes[0] ?? null);
   return { remote, remotes };
 }
 
 /** Parse `git symbolic-ref refs/remotes/<remote>/HEAD` output. */
-export function parseDefaultBranch(ref: string, remote: string): string {
+export function parseDefaultBranch(ref: string, remote: string): string | null {
   const prefix = `refs/remotes/${remote}/`;
-  if (ref.startsWith(prefix)) return ref.slice(prefix.length);
-  const parts = ref.split("/");
-  return parts[parts.length - 1] || "main";
+  if (!ref.startsWith(prefix)) return null;
+  return ref.slice(prefix.length) || null;
 }

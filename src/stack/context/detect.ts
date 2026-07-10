@@ -1,98 +1,210 @@
-/**
- * @file The shared stack-context producer.
- *
- * `detectStack` asks Git for the target directory's tracked files plus
- * untracked files not ignored by Git, then returns a single
- * {@link StackContextData} snapshot. It
- * reads only manifests and takes an extension/filename census for languages: it
- * never reads source file bodies or resolves a dependency closure. Both the
- * text renderer (`context stack`) and the JSON renderer (the OpenCode
- * stack-context plugin) format this one snapshot, so they cannot drift.
- */
-import { readFileSync, statSync } from "node:fs";
-import { basename, extname, join } from "node:path";
+/** Git-aware, bounded stack detection and manifest parsing. */
 import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  statSync,
+} from "node:fs";
+import { basename, extname, join } from "node:path";
+import { DEFAULT_COMMAND_TIMEOUT_MS } from "../../lib/env.js";
+import {
+  CONFIG_TOOLING,
   EXT_LANG,
   FILENAME_LANG,
   FRAMEWORK_INDEX,
-  CONFIG_TOOLING,
+  IGNORE_DIRS,
   LOCKFILE_TOOLING,
   MANIFEST_ECO,
   MANIFEST_TOOLING,
   NPM_TOOLING,
   PACKAGE_MANAGER_FIELD_TOOLING,
+  PARSED_DEPENDENCY_ECOSYSTEMS,
   TEXT_TOOLING,
-  TEXT_SCANNED_ECOSYSTEMS,
   type ToolingRule,
 } from "./catalog.js";
 import {
+  parseCargoDependencies,
+  parseGoModDependencies,
+  parsePipfileDependencies,
+  parsePyprojectDependencies,
+  parseRequirementsDependencies,
+  parseSetupPyDependencies,
+} from "./manifestParsers.js";
+import {
+  STACK_COLLECTION_LIMITS,
   type EcosystemEntry,
   type FrameworkEntry,
   type LanguageEntry,
   type StackContextData,
   type StackContextOptions,
+  type StackTruncation,
+  type StackTruncationReason,
   type ToolingEntry,
   type ToolingKind,
 } from "./model.js";
 
-/** GitHub Actions ecosystem name and the workflow path fragment that marks it. */
 const GITHUB_ACTIONS_ECO = "github-actions";
-const WORKFLOWS_FRAGMENT = ".github/workflows/";
+const REQUIREMENTS_FILE = /^requirements.*\.txt$/i;
 
-/** Mutable accumulator threaded through the directory walk. */
-interface WalkAccumulator {
-  readonly langFiles: Map<string, number>;
-  readonly langDirs: Map<string, Map<string, number>>;
-  readonly manifests: Map<string, string[]>;
-  readonly tooling: Map<string, MutableToolingEntry>;
-  scannedFiles: number;
-  truncated: boolean;
+interface MutableTruncation {
+  reason: StackTruncationReason;
+  limit: number;
+  observed?: number;
+  omitted?: number;
+  subject?: string;
 }
 
-/** Git-backed file list for a scan root, or the reason Git could not provide one. */
-type GitFileList =
-  | { readonly ok: true; readonly files: readonly string[] }
-  | { readonly ok: false; readonly warning: string };
-
-/** Mutable tooling entry collected before rendering a stable sorted snapshot. */
 interface MutableToolingEntry {
   readonly kinds: Set<ToolingKind>;
   readonly evidence: string[];
+  omittedEvidence: number;
 }
 
-/** Increment a key in a count map. */
+interface WalkAccumulator {
+  readonly langFiles: Map<string, number>;
+  readonly langDirs: Map<string, Map<string, number>>;
+  readonly langLocationOverflow: Map<string, number>;
+  readonly manifests: Map<string, string[]>;
+  readonly manifestOverflow: Map<string, number>;
+  readonly tooling: Map<string, MutableToolingEntry>;
+  scannedFiles: number;
+}
+
+interface CollectionState {
+  readonly warnings: string[];
+  readonly warningSet: Set<string>;
+  readonly truncations: MutableTruncation[];
+  manifestBytesRead: number;
+  omittedWarnings: number;
+  omittedTruncations: number;
+}
+
+type GitFileList =
+  | {
+      readonly ok: true;
+      readonly files: readonly string[];
+      readonly outputTruncated: boolean;
+      readonly observedBytes: number;
+    }
+  | { readonly ok: false; readonly warning: string };
+
+interface PackageJsonData {
+  readonly dependencyNames: readonly string[];
+  readonly packageManager: string | null;
+}
+
+interface ManifestCacheEntry {
+  text?: string;
+  readAttempted: boolean;
+  packageJson?: PackageJsonData;
+  packageJsonAttempted: boolean;
+  dependencies?: readonly string[];
+  dependenciesAttempted: boolean;
+}
+
+function ownLookup<T>(
+  record: Readonly<Record<string, T>>,
+  key: string,
+): T | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
+function ownValue(
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): unknown | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
 function bump(counts: Map<string, number>, key: string): void {
   counts.set(key, (counts.get(key) ?? 0) + 1);
 }
 
-/** Take the top `n` keys of a count map, highest count first then by name. */
-function topKeys(counts: Map<string, number>, n: number): string[] {
+function topKeys(counts: Map<string, number>, limit: number): string[] {
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, n)
+    .slice(0, limit)
     .map(([key]) => key);
 }
 
-/** Reduce a repository-relative file path to its top 2 leading directories. */
-function locationOf(relPath: string): string {
-  const parts = relPath.split("/");
-  parts.pop();
-  if (parts.length === 0) return ".";
-  return parts.slice(0, 2).join("/");
+function addWarning(state: CollectionState, warning: string): void {
+  if (state.warningSet.has(warning)) return;
+  state.warningSet.add(warning);
+  if (state.warnings.length < STACK_COLLECTION_LIMITS.warnings) {
+    state.warnings.push(warning);
+  } else {
+    state.omittedWarnings += 1;
+  }
 }
 
-/** Decode a subprocess stdout buffer as UTF-8 text. */
+function addTruncation(
+  state: CollectionState,
+  truncation: StackTruncation,
+): void {
+  const existing = state.truncations.find(
+    (entry) =>
+      entry.reason === truncation.reason &&
+      entry.limit === truncation.limit &&
+      entry.subject === truncation.subject,
+  );
+  if (existing) {
+    if (truncation.observed !== undefined) {
+      existing.observed = Math.max(existing.observed ?? 0, truncation.observed);
+    }
+    if (truncation.omitted !== undefined) {
+      existing.omitted = (existing.omitted ?? 0) + truncation.omitted;
+    }
+    return;
+  }
+  if (
+    state.truncations.length <
+    STACK_COLLECTION_LIMITS.truncationReasons - 1
+  ) {
+    state.truncations.push({ ...truncation });
+  } else {
+    state.omittedTruncations += 1;
+  }
+}
+
+function finalTruncations(state: CollectionState): StackTruncation[] {
+  if (state.omittedWarnings > 0) {
+    addTruncation(state, {
+      reason: "warnings",
+      limit: STACK_COLLECTION_LIMITS.warnings,
+      observed: state.warnings.length + state.omittedWarnings,
+      omitted: state.omittedWarnings,
+    });
+  }
+  if (state.omittedTruncations > 0) {
+    state.truncations.push({
+      reason: "truncationReasons",
+      limit: STACK_COLLECTION_LIMITS.truncationReasons,
+      observed: state.truncations.length + state.omittedTruncations,
+      omitted: state.omittedTruncations,
+    });
+  }
+  return state.truncations.map((entry) => ({ ...entry }));
+}
+
 function decode(stdout: Uint8Array): string {
   return new TextDecoder().decode(stdout).trim();
 }
 
-/** Return a readable Git failure reason without exposing command noise. */
 function gitFailure(result: Bun.SyncSubprocess): string {
   const stderr = result.stderr ? decode(result.stderr) : "";
   return stderr || `git exited ${result.exitCode}`;
 }
 
-/** Run `git ls-files` for the scan root, respecting Git ignore rules. */
+function completeNullTerminatedPaths(stdout: Uint8Array): string[] {
+  const text = new TextDecoder().decode(stdout);
+  const lastTerminator = text.lastIndexOf("\0");
+  if (lastTerminator < 0) return [];
+  return text.slice(0, lastTerminator).split("\0").filter(Boolean);
+}
+
 function gitFiles(root: string): GitFileList {
   try {
     const inside = Bun.spawnSync(
@@ -101,8 +213,16 @@ function gitFiles(root: string): GitFileList {
         cwd: root,
         stdout: "pipe",
         stderr: "pipe",
+        maxBuffer: 65_536,
+        timeout: DEFAULT_COMMAND_TIMEOUT_MS,
       },
     );
+    if (inside.exitedDueToTimeout) {
+      return {
+        ok: false,
+        warning: `Git worktree detection timed out after ${DEFAULT_COMMAND_TIMEOUT_MS}ms.`,
+      };
+    }
     if (inside.exitCode !== 0 || decode(inside.stdout) !== "true") {
       return {
         ok: false,
@@ -126,8 +246,27 @@ function gitFiles(root: string): GitFileList {
         cwd: root,
         stdout: "pipe",
         stderr: "pipe",
+        maxBuffer: STACK_COLLECTION_LIMITS.gitFileListBytes,
+        timeout: DEFAULT_COMMAND_TIMEOUT_MS,
       },
     );
+    if (listed.exitedDueToTimeout) {
+      return {
+        ok: false,
+        warning: `Git file listing timed out after ${DEFAULT_COMMAND_TIMEOUT_MS}ms.`,
+      };
+    }
+    if (listed.exitedDueToMaxBuffer) {
+      return {
+        ok: true,
+        files: completeNullTerminatedPaths(listed.stdout),
+        outputTruncated: true,
+        observedBytes: Math.max(
+          listed.stdout.byteLength,
+          STACK_COLLECTION_LIMITS.gitFileListBytes + 1,
+        ),
+      };
+    }
     if (listed.exitCode !== 0) {
       return {
         ok: false,
@@ -135,8 +274,12 @@ function gitFiles(root: string): GitFileList {
       };
     }
 
-    const text = new TextDecoder().decode(listed.stdout);
-    return { ok: true, files: text.split("\0").filter(Boolean) };
+    return {
+      ok: true,
+      files: completeNullTerminatedPaths(listed.stdout),
+      outputTruncated: false,
+      observedBytes: listed.stdout.byteLength,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -146,24 +289,54 @@ function gitFiles(root: string): GitFileList {
   }
 }
 
-/** Attribute a single file to a language and record its location. */
-function censusFile(acc: WalkAccumulator, name: string, rel: string): void {
-  const language = FILENAME_LANG[name] ?? EXT_LANG[extname(name).toLowerCase()];
-  if (!language) return;
-  bump(acc.langFiles, language);
-  const dirs = acc.langDirs.get(language) ?? new Map<string, number>();
-  bump(dirs, locationOf(rel));
-  acc.langDirs.set(language, dirs);
+function locationOf(relPath: string): string {
+  const parts = relPath.split("/");
+  parts.pop();
+  return parts.length === 0 ? "." : parts.slice(0, 2).join("/");
 }
 
-/** Record a manifest path under its ecosystem. */
+function pathSegments(rel: string): string[] {
+  return rel.split("/").filter(Boolean);
+}
+
+function isIgnoredPath(segments: readonly string[]): boolean {
+  return segments.slice(0, -1).some((segment) => IGNORE_DIRS.has(segment));
+}
+
+function withinDepth(segments: readonly string[], maxDepth: number): boolean {
+  return segments.length - 1 <= maxDepth;
+}
+
+function isReadableRegularFile(root: string, rel: string): boolean {
+  try {
+    const stat = lstatSync(join(root, rel));
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function isGithubWorkflow(
+  segments: readonly string[],
+  extension: string,
+): boolean {
+  if (extension !== ".yml" && extension !== ".yaml") return false;
+  return segments.some(
+    (segment, index) =>
+      segment === ".github" && segments[index + 1] === "workflows",
+  );
+}
+
 function recordManifest(acc: WalkAccumulator, eco: string, rel: string): void {
-  const list = acc.manifests.get(eco) ?? [];
-  list.push(rel);
-  acc.manifests.set(eco, list);
+  const manifests = acc.manifests.get(eco) ?? [];
+  if (manifests.length < STACK_COLLECTION_LIMITS.manifestsPerEcosystem) {
+    manifests.push(rel);
+    acc.manifests.set(eco, manifests);
+  } else {
+    bump(acc.manifestOverflow, eco);
+  }
 }
 
-/** Record tooling evidence, merging duplicate rules by display name. */
 function recordTooling(
   acc: WalkAccumulator,
   rule: ToolingRule,
@@ -174,89 +347,145 @@ function recordTooling(
     ({
       kinds: new Set<ToolingKind>(),
       evidence: [],
+      omittedEvidence: 0,
     } satisfies MutableToolingEntry);
   for (const kind of rule.kinds) entry.kinds.add(kind);
-  if (!entry.evidence.includes(evidence)) entry.evidence.push(evidence);
+  if (entry.evidence.includes(evidence)) return;
+  if (entry.evidence.length < STACK_COLLECTION_LIMITS.evidencePerTool) {
+    entry.evidence.push(evidence);
+  } else {
+    entry.omittedEvidence += 1;
+  }
   acc.tooling.set(rule.name, entry);
 }
 
-/** Classify a single file: manifest, GitHub Actions workflow, and/or language. */
+function censusFile(acc: WalkAccumulator, name: string, rel: string): void {
+  const language =
+    ownLookup(FILENAME_LANG, name) ??
+    ownLookup(EXT_LANG, extname(name).toLowerCase());
+  if (!language) return;
+  bump(acc.langFiles, language);
+  const dirs = acc.langDirs.get(language) ?? new Map<string, number>();
+  const location = locationOf(rel);
+  if (
+    dirs.has(location) ||
+    dirs.size < STACK_COLLECTION_LIMITS.locationsPerLanguage
+  ) {
+    bump(dirs, location);
+    acc.langDirs.set(language, dirs);
+  } else {
+    bump(acc.langLocationOverflow, language);
+  }
+}
+
 function classifyFile(acc: WalkAccumulator, name: string, rel: string): void {
-  const eco = MANIFEST_ECO[name];
+  const eco =
+    ownLookup(MANIFEST_ECO, name) ??
+    (REQUIREMENTS_FILE.test(name) ? "python" : undefined);
   if (eco) recordManifest(acc, eco, rel);
 
-  const manifestTool = MANIFEST_TOOLING[name];
+  const manifestTool = ownLookup(MANIFEST_TOOLING, name);
   if (manifestTool) recordTooling(acc, manifestTool, `manifest: ${rel}`);
-
-  const lockfileTool = LOCKFILE_TOOLING[name];
+  const lockfileTool = ownLookup(LOCKFILE_TOOLING, name);
   if (lockfileTool) recordTooling(acc, lockfileTool, `lockfile: ${rel}`);
-
-  const configTool = CONFIG_TOOLING[name] ?? CONFIG_TOOLING[rel];
+  const configTool =
+    ownLookup(CONFIG_TOOLING, name) ?? ownLookup(CONFIG_TOOLING, rel);
   if (configTool) recordTooling(acc, configTool, `config: ${rel}`);
 
-  const ext = extname(name).toLowerCase();
-  if ((ext === ".yml" || ext === ".yaml") && rel.includes(WORKFLOWS_FRAGMENT)) {
+  const segments = pathSegments(rel);
+  if (isGithubWorkflow(segments, extname(name).toLowerCase())) {
     recordManifest(acc, GITHUB_ACTIONS_ECO, rel);
   }
-
   censusFile(acc, name, rel);
 }
 
-/** Whether the file path is within the configured scan depth. */
-function withinDepth(rel: string, maxDepth: number): boolean {
-  return rel.split("/").length - 1 <= maxDepth;
-}
-
-/** Whether `rel` is a readable regular file below `root`. */
-function isReadableFile(root: string, rel: string): boolean {
-  try {
-    return statSync(join(root, rel)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-/** Census Git-listed files (depth- and file-capped) and collect manifest paths. */
 function walk(
   root: string,
   options: StackContextOptions,
   files: readonly string[],
+  state: CollectionState,
 ): WalkAccumulator {
   const acc: WalkAccumulator = {
     langFiles: new Map(),
     langDirs: new Map(),
+    langLocationOverflow: new Map(),
     manifests: new Map(),
+    manifestOverflow: new Map(),
     tooling: new Map(),
     scannedFiles: 0,
-    truncated: false,
   };
+  let depthOmitted = 0;
+  let observedDepth = 0;
+  const candidates: string[] = [];
 
   for (const rel of files) {
-    if (!withinDepth(rel, options.maxDepth) || !isReadableFile(root, rel)) {
+    const segments = pathSegments(rel);
+    if (segments.length === 0 || isIgnoredPath(segments)) continue;
+    if (!withinDepth(segments, options.maxDepth)) {
+      depthOmitted += 1;
+      observedDepth = Math.max(observedDepth, segments.length - 1);
       continue;
+    }
+    candidates.push(rel);
+  }
+
+  let fileCapObserved: number | undefined;
+  for (const rel of candidates) {
+    if (!isReadableRegularFile(root, rel)) continue;
+    if (acc.scannedFiles >= options.maxFiles) {
+      fileCapObserved = acc.scannedFiles + 1;
+      break;
     }
 
     acc.scannedFiles += 1;
-    if (acc.scannedFiles > options.maxFiles) {
-      acc.truncated = true;
-      return acc;
-    }
     classifyFile(acc, basename(rel), rel);
+  }
+
+  if (depthOmitted > 0) {
+    addTruncation(state, {
+      reason: "maxDepth",
+      limit: options.maxDepth,
+      observed: observedDepth,
+      omitted: depthOmitted,
+    });
+  }
+  if (fileCapObserved !== undefined) {
+    addTruncation(state, {
+      reason: "maxFiles",
+      limit: options.maxFiles,
+      observed: fileCapObserved,
+    });
+    addWarning(
+      state,
+      `Scan stopped at the ${options.maxFiles}-file cap; results are partial.`,
+    );
+  }
+  for (const [eco, omitted] of acc.manifestOverflow) {
+    addTruncation(state, {
+      reason: "manifestCollection",
+      limit: STACK_COLLECTION_LIMITS.manifestsPerEcosystem,
+      observed: STACK_COLLECTION_LIMITS.manifestsPerEcosystem + omitted,
+      omitted,
+      subject: eco,
+    });
+  }
+  for (const [language, omitted] of acc.langLocationOverflow) {
+    addTruncation(state, {
+      reason: "languageLocations",
+      limit: STACK_COLLECTION_LIMITS.locationsPerLanguage,
+      observed: STACK_COLLECTION_LIMITS.locationsPerLanguage + 1,
+      subject: language,
+    });
   }
   return acc;
 }
 
-/** Parsed package.json fields used by framework and tooling detection. */
-interface PackageJsonData {
-  /** Dependency names across dependency blocks. */
-  readonly dependencyNames: readonly string[];
-  /** Corepack-style package-manager declaration, when present. */
-  readonly packageManager: string | null;
-}
-
-/** Parse the package-manager declaration and dependency names in package.json. */
 function packageJsonData(text: string): PackageJsonData {
-  const pkg = JSON.parse(text) as Record<string, unknown>;
+  const parsed: unknown = JSON.parse(text);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new TypeError("package.json must contain an object");
+  }
+  const pkg = parsed as Record<string, unknown>;
   const names = new Set<string>();
   for (const field of [
     "dependencies",
@@ -264,106 +493,199 @@ function packageJsonData(text: string): PackageJsonData {
     "peerDependencies",
     "optionalDependencies",
   ]) {
-    const block = pkg[field];
-    if (block && typeof block === "object") {
-      for (const key of Object.keys(block as object)) names.add(key);
-    }
+    const block = ownValue(pkg, field);
+    if (typeof block !== "object" || block === null || Array.isArray(block))
+      continue;
+    for (const key of Object.keys(block)) names.add(key);
   }
-  const packageManager = pkg.packageManager;
+  const packageManager = ownValue(pkg, "packageManager");
   return {
-    dependencyNames: [...names],
+    dependencyNames: [...names].sort(),
     packageManager: typeof packageManager === "string" ? packageManager : null,
   };
 }
 
-/** Extract the package-manager tool name from a Corepack declaration. */
 function packageManagerName(value: string): string {
   return value.split("@")[0] ?? value;
 }
 
-/** Whether `token` appears as a standalone package token in manifest `text`. */
-function manifestMentions(text: string, token: string): boolean {
-  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^\\w/.-])${escaped}([^\\w/.-]|$)`, "m").test(text);
+function cacheEntry(
+  cache: Map<string, ManifestCacheEntry>,
+  rel: string,
+): ManifestCacheEntry {
+  const entry =
+    cache.get(rel) ??
+    ({
+      readAttempted: false,
+      packageJsonAttempted: false,
+      dependenciesAttempted: false,
+    } satisfies ManifestCacheEntry);
+  cache.set(rel, entry);
+  return entry;
 }
 
-/**
- * Match the framework allowlist against declared dependencies. npm is precise
- * (parsed package.json keys, `authoritative`); go/cargo/python are matched by
- * scanning the manifest for the package token (`strong`).
- */
-function detectFrameworks(
+function readManifest(
   root: string,
-  manifests: ReadonlyMap<string, string[]>,
-  warnings: string[],
-): FrameworkEntry[] {
-  const found = new Map<string, FrameworkEntry>();
+  rel: string,
+  cache: Map<string, ManifestCacheEntry>,
+  state: CollectionState,
+): string | undefined {
+  const entry = cacheEntry(cache, rel);
+  if (entry.readAttempted) return entry.text;
+  entry.readAttempted = true;
 
-  for (const rel of manifests.get("npm") ?? []) {
-    let names: readonly string[];
-    try {
-      names = packageJsonData(
-        readFileSync(join(root, rel), "utf-8"),
-      ).dependencyNames;
-    } catch {
-      if (warnings.length < 5) warnings.push(`Could not parse ${rel}.`);
-      continue;
+  let descriptor: number | undefined;
+  try {
+    const noFollow = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+    descriptor = openSync(join(root, rel), constants.O_RDONLY | noFollow);
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile()) throw new TypeError("not a regular file");
+
+    const remaining =
+      STACK_COLLECTION_LIMITS.manifestTotalBytes - state.manifestBytesRead;
+    if (remaining <= 0) {
+      addTruncation(state, {
+        reason: "manifestTotalReadBytes",
+        limit: STACK_COLLECTION_LIMITS.manifestTotalBytes,
+        observed: state.manifestBytesRead + stat.size,
+        omitted: stat.size,
+        subject: rel,
+      });
+      addWarning(
+        state,
+        `Skipped ${rel}; the manifest read budget was exhausted.`,
+      );
+      return undefined;
     }
-    for (const dep of names) {
-      const rule = FRAMEWORK_INDEX.get(`npm:${dep}`);
-      if (rule && !found.has(rule.name)) {
-        found.set(rule.name, {
-          name: rule.name,
-          via: `npm dep: ${dep}`,
-          confidence: "authoritative",
-        });
-      }
+    const limit = Math.min(STACK_COLLECTION_LIMITS.manifestBytes, remaining);
+    if (stat.size > limit) {
+      const totalBudgetApplied =
+        limit !== STACK_COLLECTION_LIMITS.manifestBytes;
+      addTruncation(state, {
+        reason: totalBudgetApplied
+          ? "manifestTotalReadBytes"
+          : "manifestReadBytes",
+        limit: totalBudgetApplied
+          ? STACK_COLLECTION_LIMITS.manifestTotalBytes
+          : STACK_COLLECTION_LIMITS.manifestBytes,
+        observed: totalBudgetApplied
+          ? state.manifestBytesRead + stat.size
+          : stat.size,
+        omitted: stat.size - limit,
+        subject: rel,
+      });
+      addWarning(
+        state,
+        `Skipped ${rel}; it exceeds the ${totalBudgetApplied ? "total manifest read budget" : "manifest read limit"}.`,
+      );
+      return undefined;
     }
+
+    const bytes = Buffer.allocUnsafe(Math.min(limit + 1, stat.size + 1));
+    const read = readSync(descriptor, bytes, 0, bytes.length, 0);
+    if (read > limit) {
+      addTruncation(state, {
+        reason: "manifestReadBytes",
+        limit: STACK_COLLECTION_LIMITS.manifestBytes,
+        observed: read,
+        omitted: read - limit,
+        subject: rel,
+      });
+      addWarning(
+        state,
+        `Skipped ${rel}; it grew beyond the manifest read limit.`,
+      );
+      return undefined;
+    }
+    state.manifestBytesRead += read;
+    entry.text = new TextDecoder().decode(bytes.subarray(0, read));
+    return entry.text;
+  } catch {
+    addWarning(state, `Could not read ${rel}.`);
+    return undefined;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
   }
-
-  for (const eco of TEXT_SCANNED_ECOSYSTEMS) {
-    for (const rel of manifests.get(eco) ?? []) {
-      let text: string;
-      try {
-        text = readFileSync(join(root, rel), "utf-8");
-      } catch {
-        continue;
-      }
-      for (const rule of FRAMEWORK_INDEX.values()) {
-        if (rule.eco !== eco || found.has(rule.name)) continue;
-        if (manifestMentions(text, rule.pkg)) {
-          found.set(rule.name, {
-            name: rule.name,
-            via: `${eco} manifest: ${rule.pkg}`,
-            confidence: "strong",
-          });
-        }
-      }
-    }
-  }
-
-  return [...found.values()];
 }
 
-/** Add npm package-manager, linter, formatter, task, build, and test tools. */
-function detectNpmTooling(
+function parsedPackageJson(
+  root: string,
+  rel: string,
+  cache: Map<string, ManifestCacheEntry>,
+  state: CollectionState,
+): PackageJsonData | undefined {
+  const entry = cacheEntry(cache, rel);
+  if (entry.packageJsonAttempted) return entry.packageJson;
+  entry.packageJsonAttempted = true;
+  const text = readManifest(root, rel, cache, state);
+  if (text === undefined) return undefined;
+  try {
+    entry.packageJson = packageJsonData(text);
+    return entry.packageJson;
+  } catch {
+    addWarning(state, `Could not parse ${rel}.`);
+    return undefined;
+  }
+}
+
+function manifestDependencies(
+  root: string,
+  eco: string,
+  rel: string,
+  cache: Map<string, ManifestCacheEntry>,
+  state: CollectionState,
+): readonly string[] {
+  const entry = cacheEntry(cache, rel);
+  if (entry.dependenciesAttempted) return entry.dependencies ?? [];
+  entry.dependenciesAttempted = true;
+  const text = readManifest(root, rel, cache, state);
+  if (text === undefined) return [];
+
+  try {
+    if (eco === "go" && basename(rel) === "go.mod") {
+      entry.dependencies = parseGoModDependencies(text);
+    } else if (eco === "cargo" && basename(rel) === "Cargo.toml") {
+      entry.dependencies = parseCargoDependencies(text);
+    } else if (eco === "python") {
+      const name = basename(rel);
+      if (name === "pyproject.toml") {
+        entry.dependencies = parsePyprojectDependencies(text);
+      } else if (REQUIREMENTS_FILE.test(name)) {
+        entry.dependencies = parseRequirementsDependencies(text);
+      } else if (name === "Pipfile") {
+        entry.dependencies = parsePipfileDependencies(text);
+      } else if (name === "setup.py") {
+        entry.dependencies = parseSetupPyDependencies(text);
+      } else {
+        entry.dependencies = [];
+      }
+    } else {
+      entry.dependencies = [];
+    }
+    return entry.dependencies;
+  } catch {
+    addWarning(state, `Could not parse ${rel}.`);
+    entry.dependencies = [];
+    return entry.dependencies;
+  }
+}
+
+function detectNpm(
   root: string,
   manifests: ReadonlyMap<string, string[]>,
   acc: WalkAccumulator,
-  warnings: string[],
+  frameworks: Map<string, FrameworkEntry>,
+  cache: Map<string, ManifestCacheEntry>,
+  state: CollectionState,
 ): void {
   for (const rel of manifests.get("npm") ?? []) {
-    let pkg: PackageJsonData;
-    try {
-      pkg = packageJsonData(readFileSync(join(root, rel), "utf-8"));
-    } catch {
-      if (warnings.length < 5) warnings.push(`Could not parse ${rel}.`);
-      continue;
-    }
-
+    const pkg = parsedPackageJson(root, rel, cache, state);
+    if (!pkg) continue;
     if (pkg.packageManager) {
-      const rule =
-        PACKAGE_MANAGER_FIELD_TOOLING[packageManagerName(pkg.packageManager)];
+      const rule = ownLookup(
+        PACKAGE_MANAGER_FIELD_TOOLING,
+        packageManagerName(pkg.packageManager),
+      );
       if (rule) {
         recordTooling(
           acc,
@@ -372,143 +694,196 @@ function detectNpmTooling(
         );
       }
     }
-
-    for (const dep of pkg.dependencyNames) {
-      const rule = NPM_TOOLING[dep];
-      if (rule) recordTooling(acc, rule, `npm dep: ${dep}`);
+    for (const dependency of pkg.dependencyNames) {
+      const tool = ownLookup(NPM_TOOLING, dependency);
+      if (tool) recordTooling(acc, tool, `npm dep: ${dependency}`);
+      const framework = FRAMEWORK_INDEX.get(`npm:${dependency}`);
+      if (framework && !frameworks.has(framework.name)) {
+        frameworks.set(framework.name, {
+          name: framework.name,
+          via: `npm dep: ${dependency}`,
+          confidence: "authoritative",
+        });
+      }
     }
   }
 }
 
-/** Add tooling rules from non-npm manifests scanned as text. */
-function detectTextTooling(
+function detectParsedDependencies(
   root: string,
   manifests: ReadonlyMap<string, string[]>,
   acc: WalkAccumulator,
+  frameworks: Map<string, FrameworkEntry>,
+  cache: Map<string, ManifestCacheEntry>,
+  state: CollectionState,
 ): void {
-  for (const eco of TEXT_SCANNED_ECOSYSTEMS) {
+  for (const eco of PARSED_DEPENDENCY_ECOSYSTEMS) {
     for (const rel of manifests.get(eco) ?? []) {
-      let text: string;
-      try {
-        text = readFileSync(join(root, rel), "utf-8");
-      } catch {
-        continue;
-      }
-      for (const rule of TEXT_TOOLING) {
-        if (rule.eco === eco && manifestMentions(text, rule.pkg)) {
-          recordTooling(acc, rule, `${eco} manifest: ${rule.pkg}`);
+      for (const dependency of manifestDependencies(
+        root,
+        eco,
+        rel,
+        cache,
+        state,
+      )) {
+        for (const rule of TEXT_TOOLING) {
+          if (rule.eco === eco && rule.pkg === dependency) {
+            recordTooling(acc, rule, `${eco} dep: ${dependency}`);
+          }
+        }
+        const framework = FRAMEWORK_INDEX.get(`${eco}:${dependency}`);
+        if (framework && !frameworks.has(framework.name)) {
+          frameworks.set(framework.name, {
+            name: framework.name,
+            via: `${eco} dep: ${dependency}`,
+            confidence: "authoritative",
+          });
         }
       }
     }
   }
 }
 
-/** Build the language entries, ordered by file count then name. */
 function buildLanguages(
   acc: WalkAccumulator,
   topLocations: number,
+  state: CollectionState,
 ): LanguageEntry[] {
   return [...acc.langFiles.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([name, files]) => ({
-      name,
-      files,
-      locations: topKeys(acc.langDirs.get(name) ?? new Map(), topLocations),
-      confidence: "heuristic",
-    }));
+    .map(([name, files]) => {
+      const dirs = acc.langDirs.get(name) ?? new Map<string, number>();
+      const limit = Math.max(0, topLocations);
+      if (dirs.size > limit) {
+        addTruncation(state, {
+          reason: "languageLocations",
+          limit,
+          observed: dirs.size,
+          omitted: dirs.size - limit,
+          subject: name,
+        });
+      }
+      return {
+        name,
+        files,
+        locations: topKeys(dirs, limit),
+        confidence: "heuristic" as const,
+      };
+    });
 }
 
-/** Build the ecosystem entries, ordered by name. */
 function buildEcosystems(acc: WalkAccumulator): EcosystemEntry[] {
   return [...acc.manifests.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([name, rels]) => ({
+    .map(([name, manifests]) => ({
       name,
-      manifests: [...rels].sort(),
+      manifests: [...manifests].sort(),
       confidence: "authoritative",
     }));
 }
 
-/** Build the tooling entries, ordered by name. */
-function buildTooling(acc: WalkAccumulator): ToolingEntry[] {
+function buildTooling(
+  acc: WalkAccumulator,
+  state: CollectionState,
+): ToolingEntry[] {
   return [...acc.tooling.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([name, entry]) => ({
-      name,
-      kinds: [...entry.kinds].sort(),
-      evidence: [...entry.evidence].sort(),
-      confidence: "authoritative",
-    }));
+    .map(([name, entry]) => {
+      if (entry.omittedEvidence > 0) {
+        addTruncation(state, {
+          reason: "toolingEvidenceCollection",
+          limit: STACK_COLLECTION_LIMITS.evidencePerTool,
+          observed:
+            STACK_COLLECTION_LIMITS.evidencePerTool + entry.omittedEvidence,
+          omitted: entry.omittedEvidence,
+          subject: name,
+        });
+      }
+      return {
+        name,
+        kinds: [...entry.kinds].sort(),
+        evidence: [...entry.evidence].sort(),
+        confidence: "authoritative" as const,
+      };
+    });
 }
 
-/** Resolve the readable directory name of a scanned root. */
 function rootName(root: string): string {
   return root.split("/").filter(Boolean).pop() ?? root;
 }
 
-/**
- * Produce the compact stack summary for `options.root`. Git supplies the file
- * set, so ignored files are excluded and non-Git directories return an empty
- * snapshot with a warning. The detector never throws for an unreadable root,
- * Git failure, or manifest, degrading to warnings and partial results instead.
- */
+function emptyStack(
+  root: string,
+  warning: string,
+  truncations: readonly StackTruncation[] = [],
+): StackContextData {
+  return {
+    root,
+    name: rootName(root),
+    scannedFiles: 0,
+    truncations,
+    languages: [],
+    ecosystems: [],
+    tooling: [],
+    frameworks: [],
+    warnings: [warning],
+  };
+}
+
+/** Produce a deterministic, bounded stack summary for a Git worktree. */
 export function detectStack(options: StackContextOptions): StackContextData {
   const { root } = options;
-  const warnings: string[] = [];
-
-  let isDirectory = false;
   try {
-    isDirectory = statSync(root).isDirectory();
+    if (!statSync(root).isDirectory()) {
+      return emptyStack(root, `'${root}' is not a readable directory.`);
+    }
   } catch {
-    isDirectory = false;
-  }
-  if (!isDirectory) {
-    return {
-      root,
-      name: rootName(root),
-      scannedFiles: 0,
-      truncated: false,
-      languages: [],
-      ecosystems: [],
-      tooling: [],
-      frameworks: [],
-      warnings: [`'${root}' is not a readable directory.`],
-    };
+    return emptyStack(root, `'${root}' is not a readable directory.`);
   }
 
   const files = gitFiles(root);
-  if (!files.ok) {
-    return {
-      root,
-      name: rootName(root),
-      scannedFiles: 0,
-      truncated: false,
-      languages: [],
-      ecosystems: [],
-      tooling: [],
-      frameworks: [],
-      warnings: [files.warning],
-    };
-  }
+  if (!files.ok) return emptyStack(root, files.warning);
 
-  const acc = walk(root, options, files.files);
-  if (acc.truncated) {
-    warnings.push(
-      `Scan stopped at the ${options.maxFiles}-file cap; results are partial.`,
+  const state: CollectionState = {
+    warnings: [],
+    warningSet: new Set(),
+    truncations: [],
+    manifestBytesRead: 0,
+    omittedWarnings: 0,
+    omittedTruncations: 0,
+  };
+  if (files.outputTruncated) {
+    addTruncation(state, {
+      reason: "gitFileListBytes",
+      limit: STACK_COLLECTION_LIMITS.gitFileListBytes,
+      observed: files.observedBytes,
+    });
+    addWarning(
+      state,
+      `Git file listing exceeded ${STACK_COLLECTION_LIMITS.gitFileListBytes} bytes; results are partial.`,
     );
   }
-  detectNpmTooling(root, acc.manifests, acc, warnings);
-  detectTextTooling(root, acc.manifests, acc);
+
+  const acc = walk(root, options, files.files, state);
+  const frameworks = new Map<string, FrameworkEntry>();
+  const cache = new Map<string, ManifestCacheEntry>();
+  detectNpm(root, acc.manifests, acc, frameworks, cache, state);
+  detectParsedDependencies(root, acc.manifests, acc, frameworks, cache, state);
+  const languages = buildLanguages(acc, options.topLocations, state);
+  const ecosystems = buildEcosystems(acc);
+  const tooling = buildTooling(acc, state);
 
   return {
     root,
     name: rootName(root),
     scannedFiles: acc.scannedFiles,
-    truncated: acc.truncated,
-    languages: buildLanguages(acc, options.topLocations),
-    ecosystems: buildEcosystems(acc),
-    tooling: buildTooling(acc),
-    frameworks: detectFrameworks(root, acc.manifests, warnings),
-    warnings,
+    truncations: finalTruncations(state),
+    languages,
+    ecosystems,
+    tooling,
+    frameworks: [...frameworks.values()].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    ),
+    warnings: state.warnings,
   };
 }

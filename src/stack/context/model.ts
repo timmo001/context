@@ -20,7 +20,7 @@ export interface StackContextOptions {
   readonly root: string;
   /** Maximum directory depth to descend below {@link root}. */
   readonly maxDepth: number;
-  /** Cap on files visited before the walk stops and marks the result truncated. */
+  /** Cap on files visited before the walk stops and records a truncation. */
   readonly maxFiles: number;
   /** Number of general locations listed per language, most files first. */
   readonly topLocations: number;
@@ -32,6 +32,44 @@ export const STACK_CONTEXT_DEFAULTS = {
   maxFiles: 200_000,
   topLocations: 4,
 } as const satisfies Omit<StackContextOptions, "root">;
+
+/** Why part of a stack snapshot or rendered payload was omitted. */
+export type StackTruncationReason =
+  | "ecosystemManifestOutput"
+  | "ecosystemsOutput"
+  | "frameworksOutput"
+  | "gitFileListBytes"
+  | "jsonOutputBytes"
+  | "languageLocations"
+  | "languageLocationsOutput"
+  | "languagesOutput"
+  | "manifestCollection"
+  | "manifestReadBytes"
+  | "manifestTotalReadBytes"
+  | "maxDepth"
+  | "maxFiles"
+  | "textOutputBytes"
+  | "outputValueBytes"
+  | "toolingEvidenceCollection"
+  | "toolingEvidenceOutput"
+  | "toolingOutput"
+  | "truncationReasons"
+  | "truncationReasonsOutput"
+  | "warnings";
+
+/** Structured detail about one applied safety or output cap. */
+export interface StackTruncation {
+  /** Cap that caused data to be omitted. */
+  readonly reason: StackTruncationReason;
+  /** Configured cap. Its unit is implied by {@link reason}. */
+  readonly limit: number;
+  /** Observed amount, when it can be measured safely. */
+  readonly observed?: number;
+  /** Number of omitted files, entries, or bytes, when knowable. */
+  readonly omitted?: number;
+  /** Affected path, ecosystem, language, or tool, when applicable. */
+  readonly subject?: string;
+}
 
 /** A detected language, its file count, and its top general locations. */
 export interface LanguageEntry {
@@ -61,7 +99,7 @@ export interface FrameworkEntry {
   readonly name: string;
   /** What signalled it, e.g. `npm dep: effect`. */
   readonly via: string;
-  /** `authoritative` for parsed npm deps, `strong` for text-matched manifests. */
+  /** Always `authoritative`: derived from a parsed declared dependency. */
   readonly confidence: StackConfidence;
 }
 
@@ -96,8 +134,8 @@ export interface StackContextData {
   readonly name: string;
   /** Total Git-listed files visited during detection. */
   readonly scannedFiles: number;
-  /** Whether the walk stopped early on {@link StackContextOptions.maxFiles}. */
-  readonly truncated: boolean;
+  /** Applied scan and collection caps. Renderers add their own output caps. */
+  readonly truncations: readonly StackTruncation[];
   /** Detected languages, most files first. */
   readonly languages: readonly LanguageEntry[];
   /** Detected package ecosystems. */
@@ -116,9 +154,29 @@ export interface StackContextData {
  */
 export const STACK_LIMITS = {
   languages: 40,
+  locationsPerLanguage: 8,
   ecosystems: 40,
   tooling: 60,
   frameworks: 60,
   manifestsPerEcosystem: 12,
   evidencePerTool: 12,
+  warnings: 20,
+  truncationReasons: 100,
+  textManifestsPerEcosystem: 6,
+  textEvidencePerTool: 8,
+  outputValueBytes: 256,
+  jsonOutputBytes: 1_048_576,
+  textOutputBytes: 1_048_576,
+} as const;
+
+/** Internal collection and I/O caps applied before rendering. */
+export const STACK_COLLECTION_LIMITS = {
+  gitFileListBytes: 8_388_608,
+  manifestBytes: 1_048_576,
+  manifestTotalBytes: 16_777_216,
+  manifestsPerEcosystem: 128,
+  evidencePerTool: 64,
+  locationsPerLanguage: 1_024,
+  warnings: STACK_LIMITS.warnings,
+  truncationReasons: STACK_LIMITS.truncationReasons,
 } as const;

@@ -70,6 +70,8 @@ export interface FileChange {
   readonly status: string;
   /** File path (last tab-separated field, the destination for renames). */
   readonly path: string;
+  /** Source path for renames and copies. */
+  readonly originalPath?: string;
   /** Whether line counts were resolved for this file (false: render no suffix). */
   readonly countsKnown: boolean;
   /** Added line count, or `null` for a binary file. */
@@ -89,19 +91,19 @@ export interface BranchMetadata {
   /** Abbreviated HEAD commit SHA. */
   readonly headSha: string;
   /** Chosen default remote (upstream > origin > first). */
-  readonly defaultRemote: string;
-  /** Resolved default branch name (e.g. `main`). */
-  readonly defaultBranch: string;
-  /** Remote-qualified base ref used for push status (upstream or default). */
-  readonly baseRef: string;
+  readonly defaultRemote: string | null;
+  /** Resolved default branch name, or `null` when remote HEAD is unavailable. */
+  readonly defaultBranch: string | null;
+  /** Remote-qualified base ref used for push status, when resolvable. */
+  readonly baseRef: string | null;
   /** Upstream tracking ref, empty when the branch has none. */
   readonly upstreamRef: string;
   /** Commits reachable from HEAD but not the base ref. */
-  readonly ahead: number;
+  readonly ahead: number | null;
   /** Commits reachable from the base ref but not HEAD. */
-  readonly behind: number;
-  /** Whether HEAD is on the repository's default branch. */
-  readonly onDefaultBranch: boolean;
+  readonly behind: number | null;
+  /** Whether HEAD is on the default branch, or `null` when it is unresolved. */
+  readonly onDefaultBranch: boolean | null;
   /** All configured remote names, in `git remote` order. */
   readonly remotes: readonly string[];
   /** Optional remote URL details, shown only when requested. */
@@ -126,24 +128,36 @@ export interface WorkingTreeStatus {
   readonly staged: readonly FileChange[];
   /** Untracked files not ignored by git. */
   readonly untracked: readonly FileChange[];
-  /** Raw `git status -sb` output for the compact plugin `<status>` block. */
+  /** Safe line-oriented rendering of NUL-delimited short status output. */
   readonly short: string;
 }
 
 /** Branch-scope aggregates measured against the default branch. */
-export interface WorkScope {
-  /** Whether these aggregates were skipped (HEAD on the default branch). */
-  readonly skipped: boolean;
-  /** Branch-only commits (`<base>..HEAD`) as short hash + subject. */
-  readonly branchCommits: readonly {
-    readonly hash: string;
-    readonly subject: string;
-  }[];
-  /** Branch-only changed files (`<base>...HEAD` name-status). */
-  readonly branchFiles: readonly FileChange[];
-  /** Branch diff stat (`<base>...HEAD --stat`). */
-  readonly branchDiffStat: string;
-}
+export type WorkScope =
+  | {
+      /** Aggregates were collected against `baseRef`. */
+      readonly state: "collected";
+      readonly baseRef: string;
+      /** Branch-only commits (`<base>..HEAD`) as short hash + subject. */
+      readonly branchCommits: readonly {
+        readonly hash: string;
+        readonly subject: string;
+      }[];
+      /** Branch-only changed files (`<base>...HEAD` name-status). */
+      readonly branchFiles: readonly FileChange[];
+      /** Branch diff stat (`<base>...HEAD --stat`). */
+      readonly branchDiffStat: string;
+    }
+  | {
+      /** Scope does not apply because HEAD is on the default branch. */
+      readonly state: "not-applicable";
+      readonly reason: "default-branch";
+    }
+  | {
+      /** Scope was requested but its default-branch base could not be resolved. */
+      readonly state: "unresolved";
+      readonly reason: string;
+    };
 
 /** Scope information for the recent-commit list heading. */
 export type CommitRange =
@@ -271,6 +285,16 @@ export interface PullRequestData {
   readonly reviews?: readonly PullRequestReview[];
   /** CI check output (`gh pr checks` text), when `checks` is enabled. */
   readonly checks?: string;
+  /** PR fields or lists truncated to their output budgets. */
+  readonly truncations: readonly TruncationNotice[];
+}
+
+/** Metadata for a value truncated before serialisation or rendering. */
+export interface TruncationNotice {
+  readonly path: string;
+  readonly unit: "characters" | "items";
+  readonly original: number;
+  readonly retained: number;
 }
 
 /** Full structured branch-context snapshot. */
@@ -290,17 +314,43 @@ export interface BranchContextData {
   /** Pull request data, or `null` when none applies. */
   readonly pullRequest: PullRequestData | null;
   /**
-   * Non-fatal collection issues (missing gh, PR fetch failure). Large-section
-   * truncation is applied inline by the JSON renderer, not recorded here.
+   * Non-fatal collection issues, including skipped dependencies, optional GitHub
+   * failures, and pull request truncation notices.
    */
   readonly warnings: readonly string[];
 }
 
 /** Character limits applied by the JSON renderer to bound prompt size. */
 export const CHAR_LIMITS = {
+  metadata: 4000,
+  remote: 512,
+  remoteUrl: 4000,
   status: 12000,
   commits: 30000,
   nameStatus: 30000,
   diffStat: 20000,
   checks: 40000,
+  warning: 2000,
+  warnings: 10000,
+  jsonOutput: 1_048_576,
+} as const;
+
+/** List limits for repository metadata in the JSON payload. */
+export const METADATA_LIMITS = {
+  remotes: 50,
+  remoteDetails: 10,
+} as const;
+
+/** Per-field and per-list limits for optional pull request data. */
+export const PR_LIMITS = {
+  scalar: 1000,
+  title: 2000,
+  url: 4000,
+  body: 30000,
+  itemBody: 12000,
+  labels: 100,
+  comments: 100,
+  reviews: 100,
+  checks: CHAR_LIMITS.checks,
+  collectionText: 30000,
 } as const;

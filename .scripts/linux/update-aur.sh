@@ -7,12 +7,20 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 AUR_PACKAGE_NAME="context-git"
 AUR_REPO_URL="ssh://aur@aur.archlinux.org/${AUR_PACKAGE_NAME}.git"
 IS_CI="${CI:-false}"
+TEMP_DIR=""
+
+cleanup() {
+  if [ "$IS_CI" = "true" ]; then
+    [ -z "$TEMP_DIR" ] || rm -rf "$TEMP_DIR"
+    [ -z "${BUILDDIR:-}" ] || rm -rf "$BUILDDIR"
+    rm -f ~/.ssh/aur_rsa ~/.ssh/config
+  fi
+}
+
+trap cleanup EXIT
 
 echo "Updating $AUR_PACKAGE_NAME AUR package..."
 echo "Running in CI: $IS_CI"
-
-git config --global user.name "Context Bot"
-git config --global user.email "github-actions@timmo001.com"
 
 if [ "$IS_CI" = "true" ]; then
   if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
@@ -44,6 +52,8 @@ EOF
   git clone "$AUR_REPO_URL" aur-repo
   cd aur-repo
   git config --global --add safe.directory "$(pwd)"
+  git config user.name "Context Bot"
+  git config user.email "github-actions@timmo001.com"
   chmod 755 "$TEMP_DIR"
   AUR_REPO_PATH="$(pwd)"
 else
@@ -57,10 +67,9 @@ else
 fi
 
 cd "$REPO_ROOT"
-LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.1.0")
+PREFIX_VERSION=$(bun -e 'const pkg = await Bun.file("package.json").json(); process.stdout.write(pkg.version)')
 REV_COUNT=$(git rev-list --count HEAD)
 SHORT_HASH=$(git rev-parse --short=7 HEAD)
-PREFIX_VERSION="${LAST_TAG#v}"
 PKGVER="${PREFIX_VERSION}.r${REV_COUNT}.g${SHORT_HASH}"
 
 echo "Generated version: $PKGVER"
@@ -85,11 +94,6 @@ git diff
 if ! git status --porcelain | grep -q .; then
   echo ""
   echo "No changes detected. AUR package is already up to date."
-  if [ "$IS_CI" = "true" ]; then
-    cd /
-    rm -rf "$TEMP_DIR" "$BUILDDIR"
-    rm -f ~/.ssh/aur_rsa ~/.ssh/config
-  fi
   exit 0
 fi
 
@@ -102,9 +106,6 @@ Commit: ${GITHUB_SHA}
 "
   git push origin master
   echo "Successfully updated AUR package to version $PKGVER"
-  cd /
-  rm -rf "$TEMP_DIR" "$BUILDDIR"
-  rm -f ~/.ssh/aur_rsa ~/.ssh/config
 else
   echo ""
   echo "Ready to commit and push to AUR"

@@ -7,6 +7,7 @@
  */
 import { formatRelativeTimeAgo } from "../services/relativeTime.js";
 import { plainStyler, type Styler } from "../../lib/ansi.js";
+import { escapeTextControls } from "../../lib/text.js";
 import type {
   BranchContextData,
   BranchMetadata,
@@ -39,7 +40,17 @@ function pluralise(count: number, noun: string): string {
 
 /** Render ahead/behind counts for the base line. */
 function formatAheadBehind(meta: BranchMetadata): string {
+  if (meta.ahead === null || meta.behind === null)
+    return "comparison unavailable";
   return `${meta.ahead} ahead, ${meta.behind} behind`;
+}
+
+function safe(value: string): string {
+  return escapeTextControls(value);
+}
+
+function safeMultiline(value: string): string {
+  return escapeTextControls(value.replace(/\r\n?/g, "\n"), true);
 }
 
 /** Format an ISO timestamp as a compact local `YYYY-MM-DD HH:mm` label. */
@@ -58,7 +69,7 @@ function formatCommitsHeading(
   const count = pluralise(commits.length, "commit");
   const legend = "↑ local, ✓ pushed";
   if (range.kind === "branch") {
-    return `Branch commits since ${range.sinceRef} (${count}, ${legend}):`;
+    return `Branch commits since ${safe(range.sinceRef)} (${count}, ${legend}):`;
   }
   if (range.kind === "today") {
     if (range.total > range.limit) {
@@ -77,7 +88,7 @@ function formatCommitsHeading(
 function appendDiffBlock(lines: string[], diff: string | undefined): void {
   if (!diff) return;
   lines.push("");
-  lines.push(diff);
+  lines.push(safeMultiline(diff));
 }
 
 /** Append optional remote URL details. */
@@ -93,9 +104,13 @@ function appendRemoteDetails(
     return;
   }
   for (const remote of meta.remoteDetails) {
-    lines.push(`  ${remote.name}:`);
-    lines.push(`    fetch: ${remote.fetchUrl || "(unknown)"}`);
-    lines.push(`    push: ${remote.pushUrl || "(unknown)"}`);
+    lines.push(`  ${safe(remote.name)}:`);
+    lines.push(
+      `    fetch: ${remote.fetchUrl ? safe(remote.fetchUrl) : "(unknown)"}`,
+    );
+    lines.push(
+      `    push: ${remote.pushUrl ? safe(remote.pushUrl) : "(unknown)"}`,
+    );
   }
 }
 
@@ -106,31 +121,31 @@ function appendPullRequest(
   styler: Styler,
 ): void {
   const s = pr.summary;
-  lines.push(styler.heading(`Pull request #${s.number}: ${s.title}`));
+  lines.push(styler.heading(`Pull request #${s.number}: ${safe(s.title)}`));
   lines.push(
-    `  ${styler.label("State:")} ${s.state || "(unknown)"} · ${styler.label("Draft:")} ${s.isDraft ? "yes" : "no"}`,
+    `  ${styler.label("State:")} ${s.state ? safe(s.state) : "(unknown)"} · ${styler.label("Draft:")} ${s.isDraft ? "yes" : "no"}`,
   );
   lines.push(
-    `  ${styler.label("Review decision:")} ${s.reviewDecision || "(none)"}`,
+    `  ${styler.label("Review decision:")} ${s.reviewDecision ? safe(s.reviewDecision) : "(none)"}`,
   );
   lines.push(
-    `  ${styler.label("Mergeability:")} ${s.mergeStateStatus || "(unknown)"}`,
+    `  ${styler.label("Mergeability:")} ${s.mergeStateStatus ? safe(s.mergeStateStatus) : "(unknown)"}`,
   );
   lines.push(
-    `  ${styler.label("Branches:")} ${s.headRefName || "(unknown)"} → ${s.baseRefName || "(unknown)"}`,
+    `  ${styler.label("Branches:")} ${s.headRefName ? safe(s.headRefName) : "(unknown)"} → ${s.baseRefName ? safe(s.baseRefName) : "(unknown)"}`,
   );
   lines.push(`  ${styler.label("Comments:")} ${s.commentCount}`);
   if (pr.labels) {
     lines.push(
-      `  ${styler.label("Labels:")} ${pr.labels.length ? pr.labels.join(", ") : "(none)"}`,
+      `  ${styler.label("Labels:")} ${pr.labels.length ? pr.labels.map(safe).join(", ") : "(none)"}`,
     );
   }
-  lines.push(`  ${styler.label("URL:")} ${s.url || "(unknown)"}`);
+  lines.push(`  ${styler.label("URL:")} ${s.url ? safe(s.url) : "(unknown)"}`);
 
   if (pr.description !== undefined) {
     lines.push("");
     lines.push(`  ${styler.heading("Description:")}`);
-    const body = pr.description.replace(/\r\n?/g, "\n").trim();
+    const body = safeMultiline(pr.description).trim();
     if (body) {
       for (const line of body.split("\n")) lines.push(`    ${line}`);
     } else {
@@ -157,12 +172,9 @@ function appendComments(
   }
   for (const comment of comments) {
     lines.push(
-      `    @${comment.author} ${formatRelativeTimeAgo(comment.createdAt)}:`,
+      `    @${safe(comment.author)} ${formatRelativeTimeAgo(comment.createdAt)}:`,
     );
-    for (const line of comment.body
-      .replace(/\r\n?/g, "\n")
-      .trim()
-      .split("\n")) {
+    for (const line of safeMultiline(comment.body).trim().split("\n")) {
       lines.push(`      ${line}`);
     }
   }
@@ -181,8 +193,8 @@ function appendReviews(
     return;
   }
   for (const review of reviews) {
-    const header = `    @${review.author} ${review.state} ${formatRelativeTimeAgo(review.submittedAt)}`;
-    const body = review.body.replace(/\r\n?/g, "\n").trim();
+    const header = `    @${safe(review.author)} ${safe(review.state)} ${formatRelativeTimeAgo(review.submittedAt)}`;
+    const body = safeMultiline(review.body).trim();
     if (body) {
       lines.push(`${header}:`);
       for (const line of body.split("\n")) lines.push(`      ${line}`);
@@ -196,7 +208,7 @@ function appendReviews(
 function appendChecks(lines: string[], checks: string, styler: Styler): void {
   lines.push("");
   lines.push(`  ${styler.heading("Checks:")}`);
-  const trimmed = checks.trim();
+  const trimmed = safeMultiline(checks).trim();
   if (!trimmed) {
     lines.push("    (none)");
     return;
@@ -224,16 +236,16 @@ export function renderBranchContextText(
 
   if (meta) {
     lines.push(
-      `${styler.heading("Repository:")} ${meta.repositoryName || "(unknown)"} (${meta.repositoryRoot || "(unknown)"})`,
+      `${styler.heading("Repository:")} ${meta.repositoryName ? safe(meta.repositoryName) : "(unknown)"} (${meta.repositoryRoot ? safe(meta.repositoryRoot) : "(unknown)"})`,
     );
     lines.push(
-      `${styler.heading("Branch:")} ${meta.currentBranch || "(detached)"}${meta.headSha ? ` @ ${meta.headSha}` : ""}`,
+      `${styler.heading("Branch:")} ${meta.currentBranch ? safe(meta.currentBranch) : "(detached)"}${meta.headSha ? ` @ ${safe(meta.headSha)}` : ""}`,
     );
     lines.push(
-      `${styler.heading("Base:")} ${meta.baseRef} (${formatAheadBehind(meta)})`,
+      `${styler.heading("Base:")} ${meta.baseRef ? safe(meta.baseRef) : "(unresolved)"} (${formatAheadBehind(meta)})`,
     );
     lines.push(
-      `${styler.heading("Default:")} ${meta.defaultRemote}/${meta.defaultBranch}`,
+      `${styler.heading("Default:")} ${meta.defaultRemote && meta.defaultBranch ? `${safe(meta.defaultRemote)}/${safe(meta.defaultBranch)}` : "(unresolved)"}`,
     );
     appendRemoteDetails(lines, meta, styler);
   } else {
@@ -262,18 +274,18 @@ export function renderBranchContextText(
     lines.push("");
   }
 
-  if (data.workScope && !data.workScope.skipped) {
+  if (data.workScope?.state === "collected") {
     const comparisonRef =
       data.commits?.range.kind === "branch"
         ? data.commits.range.sinceRef
         : "default branch";
-    lines.push(`Branch changes vs ${comparisonRef}:`);
+    lines.push(`Branch changes vs ${safe(comparisonRef)}:`);
     lines.push(formatFileList(data.workScope.branchFiles));
     if (data.workScope.branchDiffStat.trim()) {
       lines.push("");
       lines.push("Diff stat:");
       for (const line of data.workScope.branchDiffStat.split("\n")) {
-        if (line.trim()) lines.push(`  ${line}`);
+        if (line.trim()) lines.push(`  ${safe(line)}`);
       }
     }
     lines.push("");
@@ -291,7 +303,7 @@ export function renderBranchContextText(
       for (const commit of data.commits.records) {
         const marker = commit.pushed ? styler.success("✓") : styler.dim("↑");
         lines.push(
-          `${marker} ${commit.shortHash} ${commit.relativeTime} — ${commit.subject}`,
+          `${marker} ${safe(commit.shortHash)} ${commit.relativeTime} - ${safe(commit.subject)}`,
         );
         for (const file of commit.files)
           lines.push(`    ${formatFileChange(file)}`);
@@ -304,16 +316,18 @@ export function renderBranchContextText(
     lines.push("");
     lines.push(
       styler.heading(
-        `Diff vs ${branchDiff.ref} (merge-base ${branchDiff.mergeBase}):`,
+        `Diff vs ${safe(branchDiff.ref)} (merge-base ${safe(branchDiff.mergeBase)}):`,
       ),
     );
-    lines.push(branchDiff.diff || "  (no differences)");
+    lines.push(
+      branchDiff.diff ? safeMultiline(branchDiff.diff) : "  (no differences)",
+    );
   }
 
   if (data.warnings.length) {
     lines.push("");
     for (const warning of data.warnings)
-      lines.push(styler.warn(`! ${warning}`));
+      lines.push(styler.warn(`! ${safe(warning)}`));
   }
 
   const hint = formatHint(data);
@@ -338,7 +352,7 @@ function formatHint(data: BranchContextData): string | null {
   const range = data.commits?.range;
   if (range?.kind === "branch") {
     notes.push(
-      `Run \`context git --branch-diff\` for the full diff vs ${range.sinceRef}, or --diff for the working-tree diff.`,
+      `Run \`context git --branch-diff\` for the full diff vs ${safe(range.sinceRef)}, or --diff for the working-tree diff.`,
     );
   } else {
     notes.push(

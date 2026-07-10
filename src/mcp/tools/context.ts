@@ -1,4 +1,6 @@
 import { Effect, Schema } from "effect";
+import { UsageError } from "../../cli/args.js";
+import { parseSince } from "../../cli/since.js";
 import { renderHelp } from "../../cli/help.js";
 import {
   gitContextOptions,
@@ -11,9 +13,13 @@ import {
 import { GitHub } from "../../git/services/GitHub.js";
 import { CommandExecutor } from "../../services/CommandExecutor.js";
 import { mcpTools } from "../toolMetadata.js";
-import { makeToolRegistrar, READONLY_HINTS } from "./register.js";
+import {
+  makeToolRegistrar,
+  READONLY_HINTS,
+  READONLY_OPEN_WORLD_HINTS,
+} from "./register.js";
 
-const GitContextParams = Schema.Struct({
+export const GitContextParams = Schema.Struct({
   diff: Schema.optional(Schema.Boolean),
   branchDiff: Schema.optional(Schema.Boolean),
   comments: Schema.optional(Schema.Boolean),
@@ -40,6 +46,22 @@ function metadata(name: string) {
   return match;
 }
 
+/** Translate validated MCP parameters into shared git-context options. */
+export function gitContextToolOptions(params: typeof GitContextParams.Type) {
+  return gitContextOptions({
+    diff: params.diff ?? false,
+    branchDiff: params.branchDiff ?? false,
+    since: params.since === undefined ? undefined : parseSince(params.since),
+    comments: params.comments ?? false,
+    reviews: params.reviews ?? false,
+    labels: params.labels ?? false,
+    checks: params.checks ?? false,
+    description: params.description ?? true,
+    pullRequest: params.pullRequest ?? true,
+    remoteDetails: params.remotes ?? false,
+  });
+}
+
 /** Register the read-only context tools. */
 export const registerContextTools = Effect.gen(function* () {
   const register = yield* makeToolRegistrar;
@@ -51,22 +73,16 @@ export const registerContextTools = Effect.gen(function* () {
     name: gitMeta.name,
     description: gitMeta.description,
     parameters: GitContextParams,
-    annotations: READONLY_HINTS,
+    annotations: READONLY_OPEN_WORLD_HINTS,
     handle: (params) =>
-      gitContextText(
-        gitContextOptions({
-          diff: params.diff ?? false,
-          branchDiff: params.branchDiff ?? false,
-          since: params.since,
-          comments: params.comments ?? false,
-          reviews: params.reviews ?? false,
-          labels: params.labels ?? false,
-          checks: params.checks ?? false,
-          description: params.description ?? true,
-          pullRequest: params.pullRequest ?? true,
-          remoteDetails: params.remotes ?? false,
-        }),
-      ).pipe(
+      Effect.try({
+        try: () => gitContextToolOptions(params),
+        catch: (error) =>
+          new UsageError({
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      }).pipe(
+        Effect.flatMap((options) => gitContextText(options)),
         Effect.provideService(CommandExecutor, executor),
         Effect.provideService(GitHub, github),
       ),

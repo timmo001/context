@@ -23,6 +23,8 @@ if [ ! -f "dist/context" ]; then
   exit 1
 fi
 
+PACKAGE_VERSION=$(bun -e 'const pkg = await Bun.file("package.json").json(); process.stdout.write(pkg.version)')
+
 mkdir -p build/arch
 cd build/arch
 
@@ -34,7 +36,7 @@ cp ../../.scripts/linux/PKGBUILD.binary PKGBUILD
 ./context completions bash >context.bash
 ./context completions fish >context.fish
 
-ARCH_PKGVER="${VERSION:-0.1.0.r0.local}"
+ARCH_PKGVER="${VERSION:-${PACKAGE_VERSION}.r0.local}"
 ARCH_PKGVER="${ARCH_PKGVER//-/.}"
 ARCH_PKGVER="${ARCH_PKGVER//+/.}"
 export ARCH_PKGVER

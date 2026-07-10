@@ -20,7 +20,9 @@ context git --since "2 days ago"
 
 The text output includes repository identity, branch/base refs, ahead/behind state, working-tree file lists with line counts, branch changed files, recent commits with pushed/local markers, and an optional pull request block. The default remote is chosen from `upstream`, then `origin`, then the first configured remote. HTTP remote credentials are stripped before remote URLs are printed.
 
-`--json` emits the structured payload consumed by OpenCode context plugins. Full diffs from `--diff` and `--branch-diff` are text-only and are intentionally ignored for JSON output.
+`context git` does not assume a branch named `main`. If the remote default branch cannot be resolved, the JSON payload records nullable default/base fields and an explicit unresolved work-scope state. Comparisons and pull request lookup that depend on that branch are skipped with warnings.
+
+`--json` emits the structured payload consumed by OpenCode context plugins. Full diffs from `--diff` and `--branch-diff` are text-only and are intentionally ignored for JSON output. Large metadata, status, commit, and pull request sections are bounded; applied limits are included as structured truncation notices.
 
 ## Recent Commits
 
@@ -35,6 +37,8 @@ Use `--no-pr`, `--no-description`, `--no-branch-metadata`, `--no-status`, and `-
 ## Pull Requests
 
 On a feature branch, `context git` attempts to read the pull request with `gh pr view`. The PR lookup is resilient: missing `gh`, a missing PR, or network errors do not fail the command. Extra PR sections are opt-in with `--comments`, `--reviews`, `--labels`, and `--checks`.
+
+Git data required for an enabled section is not optional. If status, commit, work-scope, or requested diff collection fails, the command fails instead of presenting an empty section as authoritative.
 
 ## Full Diffs
 

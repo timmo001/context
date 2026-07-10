@@ -27,6 +27,9 @@ jobs:
       - name: Check
         run: mise run check
 
+      - name: Test
+        run: mise run test
+
       - name: Build
         run: mise run build
 
@@ -78,7 +81,7 @@ jobs:
       - build
       - aur-changes
     container:
-      image: ghcr.io/timmo001/system-bridge/ci-build-arch:latest
+      image: ghcr.io/timmo001/system-bridge/ci-build-arch:latest@sha256:1364e8914df024999f31dce77b2fbeb7103d543a4f3b40df8d6237078ad05e5d
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.aur-changes.outputs.app_changed == 'true'
     steps:
       - name: Checkout repository
@@ -93,6 +96,13 @@ jobs:
         run: |
           git config --global --add safe.directory "$(pwd)"
           mise run build
+
+      - name: Test AUR package
+        run: |
+          sudo pacman -Syu --noconfirm --needed base-devel git bun namcap
+          chown -R builduser:builduser "$(pwd)"
+          sudo -u builduser -H bash -lc 'cd "$1" && BUILDDIR=/tmp/context-makepkg makepkg --syncdeps --noconfirm --cleanbuild --clean' _ "$(pwd)/.scripts/linux"
+          namcap .scripts/linux/*.pkg.tar.zst
 
       - name: Update AUR package
         env:

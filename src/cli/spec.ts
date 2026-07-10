@@ -1,3 +1,5 @@
+import { parseSince } from "./since.js";
+
 /** Named value completion candidates for a CLI option. */
 export interface CliValueChoice {
   /** Value inserted on the command line. */
@@ -34,6 +36,8 @@ export interface CliOptionSpec {
   readonly completion?: "file" | "shell" | "none";
   /** Fixed value candidates. */
   readonly choices?: readonly CliValueChoice[];
+  /** Validate and normalise the option value. */
+  readonly parseValue?: (value: string) => string;
 }
 
 /** Extra help section rendered after options. */
@@ -145,6 +149,7 @@ export const cliCommands: readonly CliCommandSpec[] = [
         name: "--since",
         valueName: "date",
         description: "Show recent commits since this date or relative duration",
+        parseValue: parseSince,
       },
       helpOption,
     ],

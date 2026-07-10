@@ -22,7 +22,7 @@ run = "bun run build"
 description = "Create an Arch Linux package"
 depends = ["build"]
 run = '''
-VERSION="0.1.0.r$(git rev-list --count HEAD).g$(git rev-parse --short=7 HEAD)"
+VERSION="$(bun -e 'const pkg = await Bun.file("package.json").json(); process.stdout.write(pkg.version)').r$(git rev-list --count HEAD).g$(git rev-parse --short=7 HEAD)"
 export VERSION
 chmod +x ./.scripts/linux/create-arch.sh
 ./.scripts/linux/create-arch.sh
@@ -32,6 +32,11 @@ chmod +x ./.scripts/linux/create-arch.sh
 description = "Type-check the context source"
 depends = ["install"]
 run = "bunx tsc --noEmit"
+
+[tasks.test]
+description = "Run context tests"
+depends = ["install"]
+run = "bun test"
 
 [tasks.format]
 description = "Format source and docs"

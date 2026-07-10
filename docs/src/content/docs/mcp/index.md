@@ -19,7 +19,7 @@ sidebar:
 }
 ```
 
-The server exposes read-only tools and resources. See the generated [MCP tool reference](/mcp/tools/) for tool parameters.
+The server exposes read-only tools and resources. `git_context` validates `since` with the same parser as the CLI and is marked open-world when its default pull request lookup may access GitHub. See the generated [MCP tool reference](/mcp/tools/) for tool parameters.
 
 ## Resources
 

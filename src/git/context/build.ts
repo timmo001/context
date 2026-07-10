@@ -8,12 +8,24 @@
  * consumers can never drift.
  */
 import { Clock, Effect, Schema } from "effect";
-import { CommandExecutor } from "../../services/CommandExecutor.js";
-import { gitOutput } from "../../lib/git.js";
+import {
+  CommandExecutor,
+  type CommandError,
+} from "../../services/CommandExecutor.js";
+import { gitOutput as runGitOutput } from "../../lib/git.js";
+import { escapeTextControls } from "../../lib/text.js";
 import { GitHub } from "../services/GitHub.js";
 import { parseDefaultBranch, resolveDefaultRemote } from "../remotes.js";
 import { formatRelativeTimeAgo } from "../services/relativeTime.js";
 import { collectPullRequest } from "./pullRequest.js";
+import {
+  fileChange,
+  parseNameStatusZ,
+  parseNumstatZ,
+  parseShortStatusZ,
+  parseUntrackedZ,
+  type DiffCounts,
+} from "./parsing.js";
 import type {
   BranchContextData,
   BranchContextOptions,
@@ -25,6 +37,7 @@ import type {
   DiffSection,
   FileChange,
   RemoteDetail,
+  PullRequestData,
   WorkingTreeStatus,
   WorkScope,
 } from "./model.js";
@@ -38,12 +51,8 @@ const MIN_RECENT_COMMIT_LIMIT = 10;
 /** Maximum number of default-branch recent commits to include in context. */
 const MAX_RECENT_COMMIT_LIMIT = 20;
 
-/**
- * Record separator (0x1E) prefixing each commit header in the `git log`
- * format string. File status lines from `--name-status` never start with this
- * byte, so it cleanly delimits commit headers from their file lists.
- */
-const COMMIT_SEPARATOR = "\x1e";
+/** NUL-delimited token that identifies a commit header in log output. */
+const COMMIT_MARKER = "context-commit";
 
 class BranchContextError extends Schema.TaggedErrorClass<BranchContextError>()(
   "BranchContextError",
@@ -52,136 +61,117 @@ class BranchContextError extends Schema.TaggedErrorClass<BranchContextError>()(
   },
 ) {}
 
-/** Attempt to run a git command, returning empty string on failure. */
-function tryGit(
+function commandFailure(
   args: readonly string[],
-): Effect.Effect<string, never, CommandExecutor> {
-  return gitOutput(args).pipe(
-    Effect.map((output) => output.trim()),
-    Effect.catch(() => Effect.succeed("")),
+  error: CommandError,
+): BranchContextError {
+  const detail = error.stderr.trim() || error.reason;
+  return new BranchContextError({
+    message: escapeTextControls(
+      `git ${args.join(" ")} failed with exit ${error.exitCode}: ${detail}`,
+    ),
+  });
+}
+
+/** Run mandatory Git collection and escape diagnostics on failure. */
+function gitOutput(
+  args: readonly string[],
+): Effect.Effect<string, BranchContextError, CommandExecutor> {
+  return runGitOutput(args).pipe(
+    Effect.mapError(
+      (error) =>
+        new BranchContextError({
+          message: escapeTextControls(error.message),
+        }),
+    ),
   );
 }
 
-/** Added/deleted line counts for a single file. `null` denotes a binary file. */
-interface DiffCounts {
-  readonly added: number | null;
-  readonly deleted: number | null;
+/** Run a named optional probe where an ordinary Git exit means unavailable. */
+function probeGit(
+  args: readonly string[],
+): Effect.Effect<string | null, BranchContextError, CommandExecutor> {
+  return Effect.gen(function* () {
+    const executor = yield* CommandExecutor;
+    return yield* executor.run("git", args).pipe(
+      Effect.map((output) => output.trim()),
+      Effect.catchTag("CommandError", (error) =>
+        error.reason === "exit"
+          ? Effect.succeed(null)
+          : Effect.fail(commandFailure(args, error)),
+      ),
+    );
+  });
+}
+
+/** Check a ref where exit code 1 means the ref does not exist. */
+function gitRefExists(
+  ref: string,
+): Effect.Effect<boolean, BranchContextError, CommandExecutor> {
+  return Effect.gen(function* () {
+    const executor = yield* CommandExecutor;
+    return yield* executor
+      .run("git", ["rev-parse", "--verify", "--quiet", ref])
+      .pipe(
+        Effect.as(true),
+        Effect.catchTag("CommandError", (error) =>
+          error.reason === "exit" && error.exitCode === 1
+            ? Effect.succeed(false)
+            : Effect.fail(
+                commandFailure(
+                  ["rev-parse", "--verify", "--quiet", ref],
+                  error,
+                ),
+              ),
+        ),
+      );
+  });
 }
 
 /**
- * Resolve the destination path from a `--numstat` path field. Git renders
- * renames as `old => new` or `pre{old => new}post`; both must resolve to the
- * new path so `--name-status` lookups (which use the new path) find their
- * counts instead of reporting the file as binary.
- */
-function numstatFinalPath(field: string): string {
-  const brace = field.match(/^(.*)\{.* => (.*)\}(.*)$/);
-  if (brace) {
-    const [, prefix = "", middle = "", suffix = ""] = brace;
-    return `${prefix}${middle}${suffix}`.replace(/\/{2,}/g, "/");
-  }
-  const arrow = field.indexOf(" => ");
-  return arrow === -1 ? field : field.slice(arrow + " => ".length);
-}
-
-/**
- * Parse `git diff --numstat` output (`added\tdeleted\tpath`) into a map keyed
- * by path. Binary files report `-` for both counts and map to `null`.
- */
-function parseNumstat(numstat: string): Map<string, DiffCounts> {
-  const map = new Map<string, DiffCounts>();
-  for (const line of numstat.split("\n")) {
-    if (!line.trim()) continue;
-    const [addedField = "", deletedField = "", ...pathParts] = line.split("\t");
-    const path = pathParts.join("\t");
-    if (!path) continue;
-    map.set(numstatFinalPath(path), {
-      added: addedField === "-" ? null : Number(addedField),
-      deleted: deletedField === "-" ? null : Number(deletedField),
-    });
-  }
-  return map;
-}
-
-/**
- * Parse `git log --numstat` output delimited by {@link COMMIT_SEPARATOR} into a
+ * Parse NUL-delimited `git log --numstat` output into a
  * per-commit map of path → counts, keyed by full commit hash.
  */
 function parseNumstatLog(output: string): Map<string, Map<string, DiffCounts>> {
   const byCommit = new Map<string, Map<string, DiffCounts>>();
-  let current: Map<string, DiffCounts> | null = null;
-  for (const line of output.split("\n")) {
-    if (line.startsWith(COMMIT_SEPARATOR)) {
-      current = new Map<string, DiffCounts>();
-      byCommit.set(line.slice(COMMIT_SEPARATOR.length).trim(), current);
-    } else if (current && line.trim()) {
-      const [addedField = "", deletedField = "", ...pathParts] =
-        line.split("\t");
-      const path = pathParts.join("\t");
-      if (!path) continue;
-      current.set(numstatFinalPath(path), {
-        added: addedField === "-" ? null : Number(addedField),
-        deleted: deletedField === "-" ? null : Number(deletedField),
-      });
+  const fields = output.split("\0");
+  for (let index = 0; index < fields.length - 1;) {
+    if ((fields[index] ?? "").replace(/^\n+/, "") !== COMMIT_MARKER) {
+      index += 1;
+      continue;
     }
+    const hash = fields[index + 1] ?? "";
+    index += 2;
+    const start = index;
+    while (
+      index < fields.length - 1 &&
+      (fields[index] ?? "").replace(/^\n+/, "") !== COMMIT_MARKER
+    ) {
+      index += 1;
+    }
+    const records = fields.slice(start, index);
+    while (records[0] === "") records.shift();
+    if (records[0] !== undefined) records[0] = records[0].replace(/^\n+/, "");
+    byCommit.set(hash, parseNumstatZ(`${records.join("\0")}\0`));
   }
   return byCommit;
 }
 
-/** Build a {@link FileChange} from a `--name-status` line and numstat counts. */
-function toFileChange(
-  line: string,
-  numstat: Map<string, DiffCounts>,
-): FileChange {
-  const parts = line.split("\t");
-  const path = parts[parts.length - 1] ?? "";
-  const counts = numstat.get(path);
-  return {
-    raw: line,
-    status: parts[0] ?? "",
-    path,
-    countsKnown: counts !== undefined,
-    added: counts ? counts.added : null,
-    deleted: counts ? counts.deleted : null,
-  };
-}
-
-/** Parse `--name-status` text into {@link FileChange} records with counts. */
-function toFileChanges(
-  nameStatus: string,
-  numstat: Map<string, DiffCounts>,
-): FileChange[] {
-  return nameStatus
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => toFileChange(line, numstat));
-}
-
-/** Build file records for untracked files, which have no git numstat yet. */
-function toUntrackedFileChanges(output: string): FileChange[] {
-  return output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((path) => ({
-      raw: `??\t${path}`,
-      status: "??",
-      path,
-      countsKnown: false,
-      added: null,
-      deleted: null,
-    }));
-}
-
 /** Parse `git rev-list --left-right --count base...HEAD` output. */
-function parseAheadBehind(output: string): { ahead: number; behind: number } {
-  const [behindText = "0", aheadText = "0"] = output.trim().split(/\s+/);
+function parseAheadBehind(
+  output: string,
+): { ahead: number; behind: number } | null {
+  const fields = output.trim().split(/\s+/);
+  if (fields.length !== 2) return null;
+  const [behindText, aheadText] = fields;
   const behind = Number(behindText);
   const ahead = Number(aheadText);
-  return {
-    ahead: Number.isFinite(ahead) ? ahead : 0,
-    behind: Number.isFinite(behind) ? behind : 0,
-  };
+  return Number.isSafeInteger(ahead) &&
+    ahead >= 0 &&
+    Number.isSafeInteger(behind) &&
+    behind >= 0
+    ? { ahead, behind }
+    : null;
 }
 
 /** Strip credentials from HTTP(S) remote URLs before exposing them to agents. */
@@ -198,9 +188,9 @@ function sanitiseRemoteUrl(url: string): string {
 }
 
 /**
- * Build the full structured branch-context snapshot. Fails only on an
- * unexpected git error; a missing worktree resolves to `{ inRepo: false }` and
- * PR collection failures degrade to warnings.
+ * Build the full structured branch-context snapshot. Mandatory Git collection
+ * failures propagate; a missing worktree resolves to `{ inRepo: false }` and PR
+ * collection failures degrade to warnings.
  */
 export function buildBranchContext(
   options: BranchContextOptions,
@@ -209,60 +199,65 @@ export function buildBranchContext(
     const warnings: string[] = [];
 
     const inRepo =
-      (yield* tryGit(["rev-parse", "--is-inside-work-tree"])) === "true";
+      (yield* probeGit(["rev-parse", "--is-inside-work-tree"])) === "true";
     if (!inRepo) {
       return { inRepo: false, pullRequest: null, warnings };
     }
 
-    const remotesOutput = yield* tryGit(["remote"]);
+    const remotesOutput = yield* gitOutput(["remote"]);
     const { remote, remotes } = resolveDefaultRemote(remotesOutput);
 
-    let defaultBranch = "main";
-    const symbolicRef = yield* tryGit([
-      "symbolic-ref",
-      `refs/remotes/${remote}/HEAD`,
-    ]);
-    if (symbolicRef) defaultBranch = parseDefaultBranch(symbolicRef, remote);
+    const symbolicRef = remote
+      ? yield* probeGit(["symbolic-ref", `refs/remotes/${remote}/HEAD`])
+      : null;
+    const defaultBranch =
+      remote && symbolicRef ? parseDefaultBranch(symbolicRef, remote) : null;
 
-    const branch = yield* tryGit(["branch", "--show-current"]);
-    const onDefaultBranch = branch === defaultBranch;
-    const repositoryRoot = yield* tryGit(["rev-parse", "--show-toplevel"]);
+    const branch = (yield* gitOutput(["branch", "--show-current"])).trim();
+    const onDefaultBranch = defaultBranch ? branch === defaultBranch : null;
+    const repositoryRoot = (yield* gitOutput([
+      "rev-parse",
+      "--show-toplevel",
+    ])).trim();
     const repositoryName =
       repositoryRoot.split("/").filter(Boolean).pop() ?? "";
-    const headSha = yield* tryGit(["rev-parse", "--short", "HEAD"]);
+    const headSha = (yield* gitOutput(["rev-parse", "--short", "HEAD"])).trim();
 
     // Compare against the branch's upstream tracking ref so locally committed
     // work that has not been pushed yet always shows. Fall back to the remote's
     // default branch when no upstream is set.
-    const upstream = yield* tryGit([
+    const upstream = yield* probeGit([
       "rev-parse",
       "--abbrev-ref",
       "--symbolic-full-name",
       "@{upstream}",
     ]);
-    const baseRef = upstream || `${remote}/${defaultBranch}`;
-    const baseExists =
-      (yield* tryGit(["rev-parse", "--verify", "--quiet", baseRef])) !== "";
-    const { ahead, behind } = baseExists
+    const defaultBranchRef =
+      remote && defaultBranch ? `${remote}/${defaultBranch}` : null;
+    const baseRef = upstream ?? defaultBranchRef;
+    const baseExists = baseRef ? yield* gitRefExists(baseRef) : false;
+    const aheadBehind = baseExists
       ? parseAheadBehind(
-          yield* tryGit([
+          yield* gitOutput([
             "rev-list",
             "--left-right",
             "--count",
             `${baseRef}...HEAD`,
           ]),
         )
-      : { ahead: 0, behind: 0 };
+      : null;
+    if (baseExists && !aheadBehind) {
+      return yield* new BranchContextError({
+        message: `Unable to parse ahead/behind counts for '${baseRef}'.`,
+      });
+    }
+    const ahead = aheadBehind?.ahead ?? null;
+    const behind = aheadBehind?.behind ?? null;
 
-    const defaultBranchRef = `${remote}/${defaultBranch}`;
     const defaultRefExists =
-      !onDefaultBranch &&
-      (yield* tryGit([
-        "rev-parse",
-        "--verify",
-        "--quiet",
-        defaultBranchRef,
-      ])) !== "";
+      onDefaultBranch === false && defaultBranchRef
+        ? yield* gitRefExists(defaultBranchRef)
+        : false;
     const forkBase = defaultRefExists ? defaultBranchRef : null;
 
     const branchMetadata: BranchMetadata | undefined = options.branchMetadata
@@ -274,7 +269,7 @@ export function buildBranchContext(
           defaultRemote: remote,
           defaultBranch,
           baseRef,
-          upstreamRef: upstream,
+          upstreamRef: upstream ?? "",
           ahead,
           behind,
           onDefaultBranch,
@@ -288,8 +283,22 @@ export function buildBranchContext(
     const status = options.status ? yield* collectStatus() : undefined;
 
     const workScope = options.workScope
-      ? yield* collectWorkScope(forkBase)
+      ? onDefaultBranch === true
+        ? ({
+            state: "not-applicable",
+            reason: "default-branch",
+          } as const)
+        : forkBase
+          ? yield* collectWorkScope(forkBase)
+          : ({
+              state: "unresolved",
+              reason: "Default branch is unresolved.",
+            } as const)
       : undefined;
+    if (workScope?.state === "unresolved")
+      warnings.push(
+        "Skipped work-scope collection: default branch is unresolved.",
+      );
 
     const commits = yield* collectCommits(forkBase, baseRef, options.since);
 
@@ -301,10 +310,18 @@ export function buildBranchContext(
       defaultRefExists,
     });
 
-    const prResult =
-      options.pullRequest && !onDefaultBranch && branch
+    const prResult: {
+      data: PullRequestData | null;
+      warnings: readonly string[];
+    } =
+      options.pullRequest && branch && onDefaultBranch === false
         ? yield* collectPullRequest(options)
-        : { data: null, warnings: [] as readonly string[] };
+        : { data: null, warnings: [] };
+    if (options.pullRequest && branch && onDefaultBranch === null) {
+      warnings.push(
+        "Skipped pull request collection: default branch is unresolved.",
+      );
+    }
     warnings.push(...prResult.warnings);
 
     return {
@@ -323,24 +340,26 @@ export function buildBranchContext(
 /** Collect working-tree status: unstaged/staged file lists plus `-sb` text. */
 function collectStatus(): Effect.Effect<
   WorkingTreeStatus,
-  never,
+  Error,
   CommandExecutor
 > {
   return Effect.gen(function* () {
     // `--name-status` gives the change type (M/A/D/R); `--numstat` gives line
     // counts. Git emits only one when both are passed, so fetch separately.
-    const unstaged = toFileChanges(
-      yield* tryGit(["diff", "--name-status"]),
-      parseNumstat(yield* tryGit(["diff", "--numstat"])),
+    const unstaged = parseNameStatusZ(
+      yield* gitOutput(["diff", "--name-status", "-z"]),
+      parseNumstatZ(yield* gitOutput(["diff", "--numstat", "-z"])),
     );
-    const staged = toFileChanges(
-      yield* tryGit(["diff", "--cached", "--name-status"]),
-      parseNumstat(yield* tryGit(["diff", "--cached", "--numstat"])),
+    const staged = parseNameStatusZ(
+      yield* gitOutput(["diff", "--cached", "--name-status", "-z"]),
+      parseNumstatZ(yield* gitOutput(["diff", "--cached", "--numstat", "-z"])),
     );
-    const untracked = toUntrackedFileChanges(
-      yield* tryGit(["ls-files", "--others", "--exclude-standard"]),
+    const untracked = parseUntrackedZ(
+      yield* gitOutput(["ls-files", "--others", "--exclude-standard", "-z"]),
     );
-    const short = yield* tryGit(["status", "-sb"]);
+    const short = parseShortStatusZ(
+      yield* gitOutput(["status", "--short", "--branch", "-z"]),
+    );
     return { unstaged, staged, untracked, short };
   });
 }
@@ -348,15 +367,17 @@ function collectStatus(): Effect.Effect<
 /** Collect optional remote URL details for agent repository disambiguation. */
 function collectRemoteDetails(
   remotes: readonly string[],
-): Effect.Effect<readonly RemoteDetail[], never, CommandExecutor> {
+): Effect.Effect<readonly RemoteDetail[], Error, CommandExecutor> {
   return Effect.gen(function* () {
     const details: RemoteDetail[] = [];
     for (const name of remotes) {
       details.push({
         name,
-        fetchUrl: sanitiseRemoteUrl(yield* tryGit(["remote", "get-url", name])),
+        fetchUrl: sanitiseRemoteUrl(
+          (yield* gitOutput(["remote", "get-url", name])).trim(),
+        ),
         pushUrl: sanitiseRemoteUrl(
-          yield* tryGit(["remote", "get-url", "--push", name]),
+          (yield* gitOutput(["remote", "get-url", "--push", name])).trim(),
         ),
       });
     }
@@ -365,65 +386,59 @@ function collectRemoteDetails(
 }
 
 /**
- * Collect branch-scope aggregates against the fork base: branch-only commits,
- * branch changed files, and the branch diff stat. Skipped (empty) when HEAD is
- * on the default branch or the fork base cannot be resolved.
+ * Collect mandatory branch-scope aggregates against a resolved fork base.
  */
 function collectWorkScope(
-  forkBase: string | null,
-): Effect.Effect<WorkScope, never, CommandExecutor> {
+  forkBase: string,
+): Effect.Effect<WorkScope, Error, CommandExecutor> {
   return Effect.gen(function* () {
-    if (!forkBase) {
-      return {
-        skipped: true,
-        branchCommits: [],
-        branchFiles: [],
-        branchDiffStat: "",
-      };
+    const commitFields = (yield* gitOutput([
+      "log",
+      "-z",
+      "--format=%h%x00%s",
+      `${forkBase}..HEAD`,
+    ])).split("\0");
+    const branchCommits: { hash: string; subject: string }[] = [];
+    for (let index = 0; index + 1 < commitFields.length; index += 2) {
+      const hash = (commitFields[index] ?? "").replace(/^\n+/, "");
+      if (hash)
+        branchCommits.push({ hash, subject: commitFields[index + 1] ?? "" });
     }
 
-    const onelineLog = yield* tryGit(["log", "--oneline", `${forkBase}..HEAD`]);
-    const branchCommits = onelineLog
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const spaceIndex = line.indexOf(" ");
-        return spaceIndex === -1
-          ? { hash: line, subject: "" }
-          : {
-              hash: line.slice(0, spaceIndex),
-              subject: line.slice(spaceIndex + 1),
-            };
-      });
-
-    const branchFiles = toFileChanges(
-      yield* tryGit(["diff", "--name-status", `${forkBase}...HEAD`]),
-      parseNumstat(yield* tryGit(["diff", "--numstat", `${forkBase}...HEAD`])),
+    const branchFiles = parseNameStatusZ(
+      yield* gitOutput(["diff", "--name-status", "-z", `${forkBase}...HEAD`]),
+      parseNumstatZ(
+        yield* gitOutput(["diff", "--numstat", "-z", `${forkBase}...HEAD`]),
+      ),
     );
-    const branchDiffStat = yield* tryGit([
+    const branchDiffStat = (yield* gitOutput([
       "diff",
       "--stat",
       `${forkBase}...HEAD`,
-    ]);
+    ])).trim();
 
-    return { skipped: false, branchCommits, branchFiles, branchDiffStat };
+    return {
+      state: "collected",
+      baseRef: forkBase,
+      branchCommits,
+      branchFiles,
+      branchDiffStat,
+    };
   });
 }
 
 /** Collect the recent-commit list (git-context core) with push markers. */
 function collectCommits(
   forkBase: string | null,
-  baseRef: string,
+  baseRef: string | null,
   since: string | undefined,
-): Effect.Effect<CommitsSection, never, CommandExecutor> {
+): Effect.Effect<CommitsSection, Error, CommandExecutor> {
   return Effect.gen(function* () {
     // A commit is "pushed" when it is reachable from the base ref. `rev-list
     // base..HEAD` lists exactly the local commits not yet on the remote.
-    const baseExists =
-      (yield* tryGit(["rev-parse", "--verify", "--quiet", baseRef])) !== "";
+    const baseExists = baseRef ? yield* gitRefExists(baseRef) : false;
     const aheadOutput = baseExists
-      ? yield* tryGit(["rev-list", `${baseRef}..HEAD`])
+      ? yield* gitOutput(["rev-list", `${baseRef}..HEAD`])
       : "";
     const aheadHashes = new Set(
       aheadOutput
@@ -434,16 +449,18 @@ function collectCommits(
 
     const range = yield* resolveCommitRange(forkBase, since);
 
-    const logOutput = yield* tryGit([
+    const logOutput = yield* gitOutput([
       "log",
       "--name-status",
-      `--format=${COMMIT_SEPARATOR}%H%x09%h%x09%cI%x09%s`,
+      "-z",
+      `--format=${COMMIT_MARKER}%x00%H%x00%h%x00%cI%x00%s%x00`,
       ...range.args,
     ]);
-    const numstatLog = yield* tryGit([
+    const numstatLog = yield* gitOutput([
       "log",
       "--numstat",
-      `--format=${COMMIT_SEPARATOR}%H`,
+      "-z",
+      `--format=${COMMIT_MARKER}%x00%H%x00`,
       ...range.args,
     ]);
     const now = yield* Clock.currentTimeMillis;
@@ -466,9 +483,9 @@ function collectDiffs(
   return Effect.gen(function* () {
     if (!options.diff && !options.branchDiff) return undefined;
 
-    const unstaged = options.diff ? yield* tryGit(["diff"]) : undefined;
+    const unstaged = options.diff ? yield* gitOutput(["diff"]) : undefined;
     const staged = options.diff
-      ? yield* tryGit(["diff", "--cached"])
+      ? yield* gitOutput(["diff", "--cached"])
       : undefined;
     const branch = options.branchDiff
       ? yield* resolveBranchDiff(context)
@@ -485,9 +502,9 @@ function collectDiffs(
 /** Inputs needed to resolve the `--branch-diff` section. */
 interface BranchDiffContext {
   readonly branch: string;
-  readonly defaultBranch: string;
-  readonly defaultBranchRef: string;
-  readonly onDefaultBranch: boolean;
+  readonly defaultBranch: string | null;
+  readonly defaultBranchRef: string | null;
+  readonly onDefaultBranch: boolean | null;
   readonly defaultRefExists: boolean;
 }
 
@@ -498,20 +515,20 @@ interface BranchDiffContext {
  */
 function resolveBranchDiff(
   context: BranchDiffContext,
-): Effect.Effect<BranchDiff, BranchContextError, CommandExecutor> {
+): Effect.Effect<BranchDiff, Error, CommandExecutor> {
   return Effect.gen(function* () {
     if (context.onDefaultBranch) {
       return yield* new BranchContextError({
         message: `On the default branch (${context.defaultBranch}); --branch-diff requires a feature branch.`,
       });
     }
-    if (!context.defaultRefExists) {
+    if (!context.defaultRefExists || !context.defaultBranchRef) {
       return yield* new BranchContextError({
-        message: `Cannot resolve default branch ref '${context.defaultBranchRef}' for --branch-diff.`,
+        message: "Cannot resolve the default branch ref for --branch-diff.",
       });
     }
 
-    const mergeBase = yield* tryGit([
+    const mergeBase = yield* probeGit([
       "merge-base",
       context.defaultBranchRef,
       "HEAD",
@@ -522,7 +539,7 @@ function resolveBranchDiff(
       });
     }
 
-    const diff = yield* tryGit(["diff", mergeBase]);
+    const diff = yield* gitOutput(["diff", mergeBase]);
     return {
       ref: context.defaultBranchRef,
       mergeBase: mergeBase.slice(0, 7),
@@ -541,7 +558,7 @@ function resolveBranchDiff(
 function resolveCommitRange(
   forkBase: string | null,
   since: string | undefined,
-): Effect.Effect<CommitRange, never, CommandExecutor> {
+): Effect.Effect<CommitRange, Error, CommandExecutor> {
   return Effect.gen(function* () {
     if (forkBase) {
       return {
@@ -554,10 +571,19 @@ function resolveCommitRange(
       return { args: ["--since", since, "HEAD"], kind: "since", since };
     }
 
-    const todaysCount = Number(
-      yield* tryGit(["rev-list", "--count", "--since=midnight", "HEAD"]),
+    const total = Number(
+      (yield* gitOutput([
+        "rev-list",
+        "--count",
+        "--since=midnight",
+        "HEAD",
+      ])).trim(),
     );
-    const total = Number.isFinite(todaysCount) ? todaysCount : 0;
+    if (!Number.isSafeInteger(total) || total < 0) {
+      return yield* new BranchContextError({
+        message: "Unable to parse today's commit count.",
+      });
+    }
     const limit = Math.min(
       MAX_RECENT_COMMIT_LIMIT,
       Math.max(MIN_RECENT_COMMIT_LIMIT, total),
@@ -588,28 +614,39 @@ function parseCommits(
     isoDate: string;
     files: FileChange[];
   }[] = [];
-  let currentNumstat: Map<string, DiffCounts> = new Map();
-
-  for (const rawLine of logOutput.split("\n")) {
-    if (rawLine.startsWith(COMMIT_SEPARATOR)) {
-      const [fullHash = "", shortHash = "", isoDate = "", subject = ""] =
-        rawLine.slice(COMMIT_SEPARATOR.length).split("\t");
-      currentNumstat = numstatByCommit.get(fullHash) ?? new Map();
-      records.push({
-        isoDate,
-        shortHash,
-        relativeTime: formatRelativeTimeAgo(isoDate, now),
-        subject,
-        pushed: baseExists && !aheadHashes.has(fullHash),
-        files: [],
-      });
-    } else {
-      const trimmed = rawLine.trim();
-      const current = records[records.length - 1];
-      if (current && trimmed) {
-        current.files.push(toFileChange(trimmed, currentNumstat));
+  const fields = logOutput.split("\0");
+  for (let index = 0; index < fields.length - 1;) {
+    const marker = (fields[index++] ?? "").replace(/^\n+/, "");
+    if (marker !== COMMIT_MARKER) continue;
+    const fullHash = fields[index++] ?? "";
+    const shortHash = fields[index++] ?? "";
+    const isoDate = fields[index++] ?? "";
+    const subject = fields[index++] ?? "";
+    const files: FileChange[] = [];
+    const counts = numstatByCommit.get(fullHash) ?? new Map();
+    while (
+      index < fields.length - 1 &&
+      (fields[index] ?? "").replace(/^\n+/, "") !== COMMIT_MARKER
+    ) {
+      const status = (fields[index++] ?? "").replace(/^\n+/, "");
+      if (!status) continue;
+      const firstPath = fields[index++] ?? "";
+      if (!firstPath) continue;
+      if (status.startsWith("R") || status.startsWith("C")) {
+        const path = fields[index++] ?? "";
+        if (path) files.push(fileChange(status, path, counts, firstPath));
+      } else {
+        files.push(fileChange(status, firstPath, counts));
       }
     }
+    records.push({
+      isoDate,
+      shortHash,
+      relativeTime: formatRelativeTimeAgo(isoDate, now),
+      subject,
+      pushed: baseExists && !aheadHashes.has(fullHash),
+      files,
+    });
   }
 
   return records;

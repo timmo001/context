@@ -1,160 +1,141 @@
-import { Effect, Layer, Schema } from "effect";
 import { NodeRuntime } from "@effect/platform-node";
-import { renderHelp } from "./cli/help.js";
-import { getCliCommand, nativeCommandNames } from "./cli/spec.js";
-import { hasOption, optionValue, parseSince } from "./cli/args.js";
+import { Cause, Effect, Exit, Layer, Runtime } from "effect";
+import {
+  hasOption,
+  parseCliArgs,
+  UsageError,
+  type ParsedCliArgs,
+} from "./cli/args.js";
 import {
   isCompletionShell,
   renderCompletions,
   shellList,
 } from "./cli/completions.js";
-import {
-  gitContextOptions,
-  gitContextRaw,
-  gitContextRawJson,
-} from "./git/commands/Context.js";
-import {
-  stackContextOptions,
-  stackContextRaw,
-  stackContextRawJson,
-} from "./stack/commands/Context.js";
-import { CommandExecutor } from "./services/CommandExecutor.js";
+import { gitCliInvocation } from "./cli/git-options.js";
+import { renderHelp } from "./cli/help.js";
 import { GitHub } from "./git/services/GitHub.js";
-import { mcpServer, mcpTeardown } from "./mcp/commands/Mcp.js";
-
-type ParsedArgs = {
-  readonly command: string | undefined;
-  readonly rest: readonly string[];
-  readonly help: boolean;
-};
-
-class UsageError extends Schema.TaggedErrorClass<UsageError>()("UsageError", {
-  message: Schema.String,
-}) {}
-
-function parseArgs(args: readonly string[]): ParsedArgs {
-  const [first, ...rest] = args;
-  if (!first) return { command: undefined, rest: [], help: false };
-  if (first === "--help" || first === "-h") {
-    return { command: undefined, rest: [], help: true };
-  }
-  return {
-    command: first,
-    rest,
-    help: rest.includes("--help") || rest.includes("-h"),
-  };
-}
-
-function failUsage(message: string): never {
-  console.error(usageMessage(message));
-  process.exit(1);
-}
+import { formatCommandError } from "./lib/rows.js";
+import { CommandExecutor } from "./services/CommandExecutor.js";
 
 function usageMessage(message: string): string {
   return `${message}\nRun 'context --help' to see available commands.`;
 }
 
-function sinceOption(args: readonly string[]): string | undefined {
-  const raw = optionValue(args, "--since");
-  return raw ? parseSince(raw) : undefined;
+function warnInertJsonFlags(flags: readonly string[]) {
+  if (flags.length === 0) return Effect.void;
+  return Effect.sync(() =>
+    console.error(
+      `[context git] ${flags.join(" and ")} ${flags.length === 1 ? "is" : "are"} text-only and ignored with --json.`,
+    ),
+  );
 }
 
-function runGit(args: readonly string[]) {
-  const options = gitContextOptions({
-    diff: args.includes("--diff"),
-    branchDiff: args.includes("--branch-diff"),
-    since: sinceOption(args),
-    description: !args.includes("--no-description"),
-    labels: args.includes("--labels"),
-    comments: args.includes("--comments"),
-    reviews: args.includes("--reviews"),
-    checks: args.includes("--checks"),
-    pullRequest: !args.includes("--no-pr"),
-    branchMetadata: !args.includes("--no-branch-metadata"),
-    remoteDetails: args.includes("--remotes"),
-    status: !args.includes("--no-status"),
-    workScope: !args.includes("--no-work-scope"),
-  });
-  return args.includes("--json")
-    ? gitContextRawJson(options)
-    : gitContextRaw(options);
+function runGit(args: ParsedCliArgs) {
+  const invocation = gitCliInvocation(args);
+  return Effect.promise(() => import("./git/commands/Context.js")).pipe(
+    Effect.flatMap(
+      ({ gitContextOptions, gitContextRaw, gitContextRawJson }) => {
+        const options = gitContextOptions(invocation.options);
+        return warnInertJsonFlags(invocation.inertJsonFlags).pipe(
+          Effect.andThen(
+            invocation.json
+              ? gitContextRawJson(options)
+              : gitContextRaw(options),
+          ),
+        );
+      },
+    ),
+  );
 }
 
-function runStack(args: readonly string[]) {
-  const dir = args.find((arg) => !arg.startsWith("-"));
-  const options = stackContextOptions({ root: dir });
-  return args.includes("--json")
-    ? stackContextRawJson(options)
-    : stackContextRaw(options, args.includes("--plain"));
+function runStack(args: ParsedCliArgs) {
+  return Effect.promise(() => import("./stack/commands/Context.js")).pipe(
+    Effect.flatMap(
+      ({ stackContextOptions, stackContextRaw, stackContextRawJson }) => {
+        const options = stackContextOptions({ root: args.positionals[0] });
+        return hasOption(args, "--json")
+          ? stackContextRawJson(options)
+          : stackContextRaw(options, hasOption(args, "--plain"));
+      },
+    ),
+  );
 }
 
-function helpCommandArg(args: readonly string[]): string | undefined {
-  return args.find((arg) => !arg.startsWith("-"));
-}
-
-function runCompletions(args: readonly string[]) {
-  const shell = args.find((arg) => !arg.startsWith("-")) ?? "zsh";
+function runCompletions(args: ParsedCliArgs) {
+  const shell = args.positionals[0] ?? "zsh";
   if (!isCompletionShell(shell)) {
-    throw new Error(
-      `context completions: unsupported shell '${shell}' (expected: ${shellList()})`,
+    return Effect.fail(
+      new UsageError({
+        message: `context completions: unsupported shell '${shell}' (expected: ${shellList()})`,
+      }),
     );
   }
   return Effect.sync(() => process.stdout.write(renderCompletions(shell)));
 }
 
-const parsed = parseArgs(process.argv.slice(2));
-const command = parsed.command;
+function runCommand(args: ParsedCliArgs) {
+  if (!args.command) {
+    return Effect.sync(() => console.log(renderHelp()));
+  }
+  if (args.help) {
+    return Effect.sync(() => console.log(renderHelp(args.command?.name)));
+  }
 
-if (parsed.help && !command) {
-  console.log(renderHelp());
-  process.exit(0);
+  switch (args.command.name) {
+    case "git":
+      return runGit(args);
+    case "stack":
+      return runStack(args);
+    case "mcp":
+      return Effect.promise(() => import("./mcp/commands/Mcp.js")).pipe(
+        Effect.flatMap(({ mcpServer }) => mcpServer),
+      );
+    case "completions":
+      return runCompletions(args);
+    case "help":
+      return Effect.sync(() => console.log(renderHelp(args.positionals[0])));
+    default:
+      return Effect.fail(
+        new UsageError({
+          message: `context: unknown command '${args.command.name}'`,
+        }),
+      );
+  }
 }
 
-if (!command) {
-  console.log(renderHelp());
-  process.exit(0);
-}
-
-if (!nativeCommandNames.has(command)) {
-  failUsage(`context: unknown command '${command}'`);
-}
-
-if (parsed.help && command !== "help") {
-  console.log(renderHelp(command));
-  process.exit(0);
+function reportCliCause(cause: Cause.Cause<unknown>) {
+  if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+  const error = Cause.squash(cause);
+  return Effect.sync(() => {
+    console.error(
+      error instanceof UsageError
+        ? usageMessage(error.message)
+        : formatCommandError(error),
+    );
+    process.exitCode = 1;
+  });
 }
 
 const CliLayers = GitHub.layer.pipe(Layer.provideMerge(CommandExecutor.layer));
 
-if (command === "mcp") {
-  NodeRuntime.runMain(mcpServer.pipe(Effect.provide(CliLayers)), {
-    teardown: mcpTeardown,
-  });
-} else {
-  const effect = (() => {
-    const canonical = getCliCommand(command)?.name ?? command;
-    switch (canonical) {
-      case "git":
-        return runGit(parsed.rest);
-      case "stack":
-        return runStack(parsed.rest);
-      case "completions":
-        return runCompletions(parsed.rest);
-      case "help":
-        return Effect.sync(() => {
-          console.log(renderHelp(helpCommandArg(parsed.rest)));
-        });
-      default:
-        return Effect.fail(
-          new UsageError({
-            message: usageMessage(`context: unknown command '${command}'`),
-          }),
-        );
-    }
-  })();
+const cliTeardown: Runtime.Teardown = (exit, onExit) =>
+  Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)
+    ? Runtime.defaultTeardown(exit, onExit)
+    : onExit(0);
 
-  Effect.runPromise(effect.pipe(Effect.provide(CliLayers))).catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
-}
+const program = Effect.try({
+  try: () => parseCliArgs(process.argv.slice(2)),
+  catch: (error) =>
+    error instanceof UsageError
+      ? error
+      : new UsageError({ message: formatCommandError(error) }),
+}).pipe(
+  Effect.flatMap(runCommand),
+  Effect.provide(CliLayers),
+  Effect.catchCause(reportCliCause),
+);
+
+NodeRuntime.runMain(program, {
+  disableErrorReporting: true,
+  teardown: cliTeardown,
+});
