@@ -38,3 +38,23 @@ test("shows command help only after validating all arguments", async () => {
   expect(invalid.stdout).toBe("");
   expect(invalid.stderr).toContain("context git: unknown option '--unknown'");
 });
+
+test("runs the primary read-only commands end to end", async () => {
+  const [git, stack, completions] = await Promise.all([
+    runCli(["git", "--json", "--no-pr"]),
+    runCli(["stack", "--json"]),
+    runCli(["completions"]),
+  ]);
+
+  expect(git.exitCode).toBe(0);
+  expect(git.stderr).toBe("");
+  expect(JSON.parse(git.stdout)).toMatchObject({ inRepo: true });
+
+  expect(stack.exitCode).toBe(0);
+  expect(stack.stderr).toBe("");
+  expect(JSON.parse(stack.stdout)).toMatchObject({ name: "context" });
+
+  expect(completions.exitCode).toBe(0);
+  expect(completions.stderr).toBe("");
+  expect(completions.stdout).toStartWith("#compdef context");
+});

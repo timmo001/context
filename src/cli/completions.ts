@@ -52,6 +52,12 @@ function choiceWords(option: CliOptionSpec): string | undefined {
   return option.choices?.map((choice) => choice.value).join(" ");
 }
 
+function argumentChoiceWords(command: CliCommandSpec): string | undefined {
+  return command.arguments?.[0]?.choices
+    ?.map((choice) => choice.value)
+    .join(" ");
+}
+
 /** Render Bash completions. */
 export function renderBashCompletions(): string {
   const lines = [
@@ -92,6 +98,15 @@ export function renderBashCompletions(): string {
         lines.push("          ;;");
         lines.push("      esac");
       }
+    }
+    const argumentChoices = argumentChoiceWords(command);
+    if (argumentChoices) {
+      lines.push("      if (( cword == 2 )) && [[ $cur != -* ]]; then");
+      lines.push(
+        `        COMPREPLY=( $(compgen -W ${bashQuote(argumentChoices)} -- "$cur") )`,
+      );
+      lines.push("        return");
+      lines.push("      fi");
     }
     lines.push(`      opts=${bashQuote(optionWords(command))}`);
     lines.push("      if [[ $cur == -* ]]; then");
@@ -187,11 +202,16 @@ export function renderZshCompletions(): string {
     lines.push(`  ${command.name})`);
     lines.push("    _arguments -S \\");
     const options = (command.options ?? []).map(zshOption);
-    const args = (command.arguments ?? []).map((argument, index) =>
-      argument.completion === "file"
-        ? `      '${index + 1}:${argument.description ?? argument.name}:_files' \\`
-        : `      '${index + 1}:${argument.description ?? argument.name}:' \\`,
-    );
+    const args = (command.arguments ?? []).map((argument, index) => {
+      const choices = argument.choices?.map((choice) => choice.value).join(" ");
+      const action =
+        argument.completion === "file"
+          ? "_files"
+          : choices
+            ? `(${choices})`
+            : "";
+      return `      '${index + 1}:${argument.description ?? argument.name}:${action}' \\`;
+    });
     for (const entry of [
       ...options.map((option) => `      ${option} \\`),
       ...args,
