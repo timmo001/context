@@ -1,0 +1,58 @@
+---
+name: Publish AUR git package
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - src/**
+      - package.json
+      - bun.lock
+      - mise.toml
+      - LICENSE
+      - .scripts/linux/PKGBUILD
+      - .scripts/linux/prepare-aur.sh
+      - .github/workflows/publish-aur-git.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-aur-git-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare AUR package (context-git)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up mise
+        uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566
+      - name: Prepare context-git
+        run: .scripts/linux/prepare-aur.sh "${{ runner.temp }}/aur-package"
+      - name: Upload context-git
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: aur-context-git-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aur-package
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish AUR (context-git)
+    needs: prepare
+    uses: >- # master
+      timmo001/workflows/.github/workflows/publish-aur.yml@405726c0d3241169dc241682ffa91176f9a82916
+    with:
+      package-name: context-git
+      artifact-name: aur-context-git-${{ github.run_id }}-${{ github.run_attempt }}
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
