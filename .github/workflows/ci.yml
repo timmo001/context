@@ -112,7 +112,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.aur-changes.outputs.app_changed == 'true'
     permissions:
       contents: read
-    uses: timmo001/workflows/.github/workflows/publish-aur.yml@258c64aeee76aec4a45ed2a3e54b2393460c303b # master
+    uses: timmo001/workflows/.github/workflows/publish-aur.yml@405726c0d3241169dc241682ffa91176f9a82916 # master
     with:
       package-name: context-git
       artifact-name: aur-context-git-${{ github.run_id }}-${{ github.run_attempt }}
