@@ -5,13 +5,37 @@ description: Install context from the AUR or build it locally with mise.
 
 ## Arch Linux
 
-Install the `context-git` AUR package with an AUR helper:
+Install the stable binary package with an AUR helper:
+
+```bash
+yay -S context-bin
+```
+
+Install `context-git` instead to track relevant changes on `main`:
 
 ```bash
 yay -S context-git
 ```
 
-`context-git` is a source package. It builds from the GitHub repository and installs the `context` binary plus Bash, Fish, and Zsh completions.
+Both packages install the `context` binary plus Bash, Fish, and Zsh completions.
+
+Stable releases use a manually chosen `YYYYMMDD.N` version. Create a blank
+GitHub draft, optionally generate its release notes, then publish it to build
+Linux archives, deb and RPM packages and update `context-bin`.
+
+## Release Assets
+
+Download stable archives, deb packages, and RPM packages from the
+[GitHub releases page](https://github.com/timmo001/context/releases). Archives
+contain the standalone `context` executable. Deb, RPM, and AUR packages also
+install Bash, Fish, and Zsh completions.
+
+Install a downloaded deb or RPM package with your system package manager:
+
+```bash
+sudo apt install ./context_VERSION_ARCH.deb
+sudo dnf install ./context-VERSION-1.ARCH.rpm
+```
 
 ## Build Locally
 
@@ -27,13 +51,3 @@ The compiled binary is written to `dist/context`. Run it directly or put it some
 ```bash
 ./dist/context --help
 ```
-
-## Build an Arch Package
-
-Create a local Arch package from the compiled binary:
-
-```bash
-mise run package:arch
-```
-
-This task is Arch-specific and needs `makepkg` from `base-devel`. The package is written to `dist/` and includes shell completions.
