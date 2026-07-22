@@ -1,0 +1,33 @@
+---
+name: context
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: none
+release: "1"
+section: utils
+priority: optional
+maintainer: Aidan Timson <aidan@timmo.dev>
+description: Standalone CLI and MCP server for deterministic repository context
+homepage: https://github.com/timmo001/context
+license: Apache-2.0
+overrides:
+  deb:
+    depends:
+      - libc6
+  rpm:
+    depends:
+      - glibc
+contents:
+  - src: dist/release/root/context
+    dst: /usr/bin/context
+    file_info:
+      mode: 0755
+  - src: .scripts/linux/completions/context.bash
+    dst: /usr/share/bash-completion/completions/context
+  - src: .scripts/linux/completions/context.fish
+    dst: /usr/share/fish/vendor_completions.d/context.fish
+  - src: .scripts/linux/completions/_context
+    dst: /usr/share/zsh/site-functions/_context
+  - src: LICENSE
+    dst: /usr/share/licenses/context/LICENSE
