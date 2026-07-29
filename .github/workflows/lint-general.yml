@@ -11,22 +11,22 @@ on:
 
 jobs:
   actionlint:
-    uses: timmo001/workflows/.github/workflows/lint-actionlint.yml@e288922717ddd852f355f8ed558370eaf074392b # master
+    uses: timmo001/workflows/.github/workflows/lint-actionlint.yml@8b435c1ef0ba93347b09ae549db256cfeaae8338 # master
 
   markdownlint:
-    uses: timmo001/workflows/.github/workflows/lint-markdownlint.yml@e288922717ddd852f355f8ed558370eaf074392b # master
+    uses: timmo001/workflows/.github/workflows/lint-markdownlint.yml@8b435c1ef0ba93347b09ae549db256cfeaae8338 # master
 
   yamllint:
-    uses: timmo001/workflows/.github/workflows/lint-yamllint.yml@e288922717ddd852f355f8ed558370eaf074392b # master
+    uses: timmo001/workflows/.github/workflows/lint-yamllint.yml@8b435c1ef0ba93347b09ae549db256cfeaae8338 # master
 
   jsonlint:
-    uses: timmo001/workflows/.github/workflows/lint-jsonlint.yml@e288922717ddd852f355f8ed558370eaf074392b # master
+    uses: timmo001/workflows/.github/workflows/lint-jsonlint.yml@8b435c1ef0ba93347b09ae549db256cfeaae8338 # master
 
   markdown-links:
-    uses: timmo001/workflows/.github/workflows/lint-markdown-links.yml@e288922717ddd852f355f8ed558370eaf074392b # master
+    uses: timmo001/workflows/.github/workflows/lint-markdown-links.yml@8b435c1ef0ba93347b09ae549db256cfeaae8338 # master
 
   shellcheck:
-    uses: timmo001/workflows/.github/workflows/lint-shellcheck.yml@e288922717ddd852f355f8ed558370eaf074392b # master
+    uses: timmo001/workflows/.github/workflows/lint-shellcheck.yml@8b435c1ef0ba93347b09ae549db256cfeaae8338 # master
     with:
       scandir: ./.scripts
       severity: warning
