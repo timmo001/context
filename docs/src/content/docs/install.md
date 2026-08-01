@@ -23,6 +23,15 @@ Stable releases use a manually chosen `YYYYMMDD.N` version. Create a blank
 GitHub draft, optionally generate its release notes, then publish it to build
 Linux archives, deb and RPM packages and update `context-bin`.
 
+## Runtime Requirements
+
+Release binaries are standalone and do not require Bun, Node.js, or npm
+packages at runtime. `context` uses these external commands:
+
+- `git` is required for Git and stack context.
+- `gh` is optional. It adds GitHub pull request context when available; missing
+  `gh`, a missing pull request, or a network error does not fail the command.
+
 ## Release Assets
 
 Download stable archives, deb packages, and RPM packages from the
