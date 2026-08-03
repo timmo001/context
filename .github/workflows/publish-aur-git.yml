@@ -25,6 +25,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  publish-arch:
+    name: Publish Arch package (context-git)
+    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@0f4bab91b78f84353d934ad42d98692f054f9fcd # master
+    with:
+      package-name: context-git
+    secrets:
+      ARCH_REPO_DISPATCH_TOKEN: ${{ secrets.ARCH_REPO_DISPATCH_TOKEN }}
+
   prepare:
     name: Prepare AUR package (context-git)
     runs-on: ubuntu-latest
