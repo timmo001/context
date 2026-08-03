@@ -11,7 +11,7 @@ permissions:
 jobs:
   publish:
     name: Build context-git fixture
-    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@95725e21eaf1589163b3dfee2b7f58b10631eb2a # master
+    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@49bbe9c0795b8553b4c6cf5997406747fd42b1b7 # master
     with:
       package-name: context-git
     secrets:
