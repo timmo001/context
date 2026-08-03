@@ -112,6 +112,17 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  publish-arch:
+    name: Publish Arch package (context-bin)
+    needs: prepare-aur
+    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@0ccca490086f604ff9d1c6005ee6c4338bc639b8 # master
+    with:
+      package-name: context-bin
+      package-files-artifact-name: aur-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      pkgbuild-path: PKGBUILD
+    secrets:
+      ARCH_REPO_DISPATCH_TOKEN: ${{ secrets.ARCH_REPO_DISPATCH_TOKEN }}
+
   publish-aur:
     name: Publish AUR (context-bin)
     needs: prepare-aur
