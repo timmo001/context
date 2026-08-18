@@ -28,6 +28,11 @@ description = "Run context tests"
 depends = ["install"]
 run = "bun test"
 
+[tasks.lint]
+description = "Lint source with Oxlint"
+depends = ["install"]
+run = "bun run lint"
+
 [tasks.format]
 description = "Format source and docs"
 depends = ["install"]
@@ -39,8 +44,8 @@ depends = ["install"]
 run = "bun run format:check"
 
 [tasks.check]
-description = "Type-check and verify formatting"
-depends = ["typecheck", "format:check"]
+description = "Lint, type-check, and verify formatting"
+depends = ["lint", "typecheck", "format:check"]
 
 [tasks."docs:install"]
 description = "Install docs dependencies"

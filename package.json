@@ -10,6 +10,7 @@
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --compile --outfile dist/context",
     "test": "bun test",
+    "lint": "oxlint .",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
     "prepare": "effect-language-service patch"
@@ -20,7 +21,9 @@
   },
   "devDependencies": {
     "@effect/language-service": "^0.87.0",
+    "@oxlint/plugins": "1.79.0",
     "@types/bun": "^1.3.13",
+    "oxlint": "1.79.0",
     "prettier": "^3.5.3",
     "typescript": "^6.0.3"
   },
