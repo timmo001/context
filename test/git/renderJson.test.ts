@@ -1,7 +1,30 @@
 import { describe, expect, test } from "bun:test";
+import { Schema } from "effect";
 import type { BranchContextData } from "../../src/git/context/model.js";
 import { CHAR_LIMITS } from "../../src/git/context/model.js";
 import { renderBranchContextJson } from "../../src/git/context/renderJson.js";
+
+const truncationSchema = Schema.Struct({
+  path: Schema.String,
+  retained: Schema.Number,
+});
+const pullRequestSchema = Schema.Struct({
+  description: Schema.optionalKey(Schema.String),
+  labels: Schema.optionalKey(Schema.Array(Schema.String)),
+  comments: Schema.optionalKey(Schema.Array(Schema.Unknown)),
+  reviews: Schema.optionalKey(Schema.Array(Schema.Unknown)),
+  checks: Schema.optionalKey(Schema.String),
+});
+const payloadSchema = Schema.fromJsonString(
+  Schema.Struct({
+    inRepo: Schema.Boolean,
+    commits: Schema.optionalKey(Schema.String),
+    pullRequest: Schema.NullOr(pullRequestSchema),
+    warnings: Schema.Array(Schema.String),
+    truncations: Schema.Array(truncationSchema),
+  }),
+);
+const decodePayload = Schema.decodeUnknownSync(payloadSchema);
 
 function context(
   overrides: Partial<BranchContextData> = {},
@@ -39,7 +62,7 @@ const pullRequestSummary = {
 describe("renderBranchContextJson", () => {
   test("renders the exact non-repository schema", () => {
     expect(
-      JSON.parse(
+      decodePayload(
         renderBranchContextJson({
           inRepo: false,
           pullRequest: null,
@@ -59,18 +82,18 @@ describe("renderBranchContextJson", () => {
       range: { args: ["-n", "10", "HEAD"], kind: "recent" as const },
       records: [commit],
     };
-    const withoutScope = JSON.parse(
+    const withoutScope = decodePayload(
       renderBranchContextJson(context({ commits })),
-    ) as Record<string, unknown>;
-    const defaultScope = JSON.parse(
+    );
+    const defaultScope = decodePayload(
       renderBranchContextJson(
         context({
           commits,
           workScope: { state: "not-applicable", reason: "default-branch" },
         }),
       ),
-    ) as Record<string, unknown>;
-    const collectedScope = JSON.parse(
+    );
+    const collectedScope = decodePayload(
       renderBranchContextJson(
         context({
           commits,
@@ -83,7 +106,7 @@ describe("renderBranchContextJson", () => {
           },
         }),
       ),
-    ) as Record<string, unknown>;
+    );
 
     expect(withoutScope.commits).toBe("↑ abc1234 2h ago subject");
     expect(defaultScope.commits).toBe("↑ abc1234 2h ago subject");
@@ -91,14 +114,14 @@ describe("renderBranchContextJson", () => {
   });
 
   test("preserves optional pull request omission and explicit empty values", () => {
-    const omitted = JSON.parse(
+    const omitted = decodePayload(
       renderBranchContextJson(
         context({
           pullRequest: { summary: pullRequestSummary, truncations: [] },
         }),
       ),
-    ) as { pullRequest: Record<string, unknown> };
-    const empty = JSON.parse(
+    );
+    const empty = decodePayload(
       renderBranchContextJson(
         context({
           pullRequest: {
@@ -112,7 +135,11 @@ describe("renderBranchContextJson", () => {
           },
         }),
       ),
-    ) as { pullRequest: Record<string, unknown> };
+    );
+
+    expect(omitted.pullRequest).not.toBeNull();
+    expect(empty.pullRequest).not.toBeNull();
+    if (omitted.pullRequest === null || empty.pullRequest === null) return;
 
     expect(omitted.pullRequest).not.toHaveProperty("description");
     expect(omitted.pullRequest).not.toHaveProperty("comments");
@@ -139,11 +166,7 @@ describe("renderBranchContextJson", () => {
         },
       }),
     );
-    const payload = JSON.parse(rendered) as {
-      pullRequest: null;
-      warnings: string[];
-      truncations: Array<{ path: string; retained: number }>;
-    };
+    const payload = decodePayload(rendered);
 
     expect(rendered.length).toBeLessThanOrEqual(CHAR_LIMITS.jsonOutput);
     expect(payload.pullRequest).toBeNull();
@@ -203,12 +226,22 @@ describe("renderBranchContextJson", () => {
       warnings: ["warning\u0007"],
     };
 
-    const payload = JSON.parse(renderBranchContextJson(data)) as {
-      branchMetadata: { repositoryRoot: string; repositoryName: string };
-      workScope: { branchDiffStat: string };
-      pullRequest: { summary: { title: string }; description: string };
-      warnings: string[];
-    };
+    const payload = Schema.decodeUnknownSync(
+      Schema.fromJsonString(
+        Schema.Struct({
+          branchMetadata: Schema.Struct({
+            repositoryRoot: Schema.String,
+            repositoryName: Schema.String,
+          }),
+          workScope: Schema.Struct({ branchDiffStat: Schema.String }),
+          pullRequest: Schema.Struct({
+            summary: Schema.Struct({ title: Schema.String }),
+            description: Schema.String,
+          }),
+          warnings: Schema.Array(Schema.String),
+        }),
+      ),
+    )(renderBranchContextJson(data));
 
     expect(payload.branchMetadata.repositoryRoot).toContain("\\x1b");
     expect(payload.branchMetadata.repositoryName).toBe("repo\\nname");
@@ -248,10 +281,23 @@ describe("renderBranchContextJson", () => {
     };
 
     const rendered = renderBranchContextJson(data);
-    const payload = JSON.parse(rendered) as {
-      branchMetadata: { remotes: string[]; remoteDetails: unknown[] };
-      truncations: Array<{ path: string }>;
-    };
+    const payload = Schema.decodeUnknownSync(
+      Schema.fromJsonString(
+        Schema.Struct({
+          branchMetadata: Schema.Struct({
+            remotes: Schema.Array(Schema.String),
+            remoteDetails: Schema.Array(
+              Schema.Struct({
+                name: Schema.String,
+                fetchUrl: Schema.String,
+                pushUrl: Schema.String,
+              }),
+            ),
+          }),
+          truncations: Schema.Array(Schema.Struct({ path: Schema.String })),
+        }),
+      ),
+    )(rendered);
     expect(rendered.length).toBeLessThanOrEqual(CHAR_LIMITS.jsonOutput);
     expect(payload.branchMetadata.remotes).toHaveLength(50);
     expect(payload.branchMetadata.remoteDetails).toHaveLength(10);

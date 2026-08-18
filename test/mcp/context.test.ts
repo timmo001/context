@@ -10,12 +10,13 @@ import {
 import {
   READONLY_HINTS,
   READONLY_OPEN_WORLD_HINTS,
+  ToolRegistrar,
 } from "../../src/mcp/tools/register.js";
 import { mcpTools } from "../../src/mcp/toolMetadata.js";
 import { CommandExecutor } from "../../src/services/CommandExecutor.js";
 
 const McpTestLayer = Layer.mergeAll(
-  McpServer.McpServer.layer,
+  ToolRegistrar.layer.pipe(Layer.provideMerge(McpServer.McpServer.layer)),
   CommandExecutor.layer,
   GitHub.layer.pipe(Layer.provide(CommandExecutor.layer)),
 );

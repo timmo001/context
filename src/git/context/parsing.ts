@@ -1,6 +1,10 @@
 import { escapeTextControls } from "../../lib/text.js";
 import type { FileChange } from "./model.js";
 
+type MutableFileChange = {
+  -readonly [Key in keyof FileChange]: FileChange[Key];
+};
+
 /** Added/deleted line counts for a single file. `null` denotes a binary file. */
 export interface DiffCounts {
   readonly added: number | null;
@@ -57,15 +61,16 @@ export function fileChange(
   originalPath?: string,
 ): FileChange {
   const diffCounts = counts.get(path);
-  return {
+  const change: MutableFileChange = {
     raw: displayRaw(status, path, originalPath),
     status,
     path,
-    ...(originalPath === undefined ? {} : { originalPath }),
     countsKnown: diffCounts !== undefined,
     added: diffCounts?.added ?? null,
     deleted: diffCounts?.deleted ?? null,
   };
+  if (originalPath !== undefined) change.originalPath = originalPath;
+  return change;
 }
 
 /** Parse `git diff --name-status -z` output, including rename source paths. */

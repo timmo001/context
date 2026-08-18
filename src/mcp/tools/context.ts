@@ -14,9 +14,9 @@ import { GitHub } from "../../git/services/GitHub.js";
 import { CommandExecutor } from "../../services/CommandExecutor.js";
 import { mcpTools } from "../toolMetadata.js";
 import {
-  makeToolRegistrar,
   READONLY_HINTS,
   READONLY_OPEN_WORLD_HINTS,
+  ToolRegistrar,
 } from "./register.js";
 
 export const GitContextParams = Schema.Struct({
@@ -64,7 +64,7 @@ export function gitContextToolOptions(params: typeof GitContextParams.Type) {
 
 /** Register the read-only context tools. */
 export const registerContextTools = Effect.gen(function* () {
-  const register = yield* makeToolRegistrar;
+  const { register } = yield* ToolRegistrar;
   const executor = yield* CommandExecutor;
   const github = yield* GitHub;
 

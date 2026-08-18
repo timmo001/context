@@ -42,7 +42,7 @@ export const IGNORE_DIRS: ReadonlySet<string> = new Set([
 ]);
 
 /** File extension (lowercase, with dot) -> language for the census. */
-export const EXT_LANG: Readonly<Record<string, string>> = {
+export const EXT_LANG = {
   ".ts": "TypeScript",
   ".mts": "TypeScript",
   ".cts": "TypeScript",
@@ -101,20 +101,20 @@ export const EXT_LANG: Readonly<Record<string, string>> = {
   ".yml": "YAML",
   ".yaml": "YAML",
   ".toml": "TOML",
-};
+} satisfies Readonly<Record<string, string>>;
 
 /** Exact filename -> language, for languages identified by name not extension. */
-export const FILENAME_LANG: Readonly<Record<string, string>> = {
+export const FILENAME_LANG = {
   Dockerfile: "Dockerfile",
   Containerfile: "Dockerfile",
   Makefile: "Makefile",
   "CMakeLists.txt": "CMake",
   Justfile: "Just",
   justfile: "Just",
-};
+} satisfies Readonly<Record<string, string>>;
 
 /** Manifest/lock filename -> ecosystem, for authoritative ecosystem detection. */
-export const MANIFEST_ECO: Readonly<Record<string, string>> = {
+export const MANIFEST_ECO = {
   "package.json": "npm",
   "go.mod": "go",
   "Cargo.toml": "cargo",
@@ -130,7 +130,7 @@ export const MANIFEST_ECO: Readonly<Record<string, string>> = {
   "pubspec.yaml": "pub",
   "mix.exs": "hex",
   "Package.swift": "swiftpm",
-};
+} satisfies Readonly<Record<string, string>>;
 
 /** Tool category constants reused by the tooling detection catalog. */
 export const TOOL_KIND = {
@@ -153,7 +153,7 @@ export interface ToolingRule {
 }
 
 /** Lockfile/manager file -> package-manager rule. */
-export const LOCKFILE_TOOLING: Readonly<Record<string, ToolingRule>> = {
+export const LOCKFILE_TOOLING = {
   "bun.lock": { name: "Bun", kinds: [TOOL_KIND.packageManager] },
   "bun.lockb": { name: "Bun", kinds: [TOOL_KIND.packageManager] },
   "pnpm-lock.yaml": { name: "pnpm", kinds: [TOOL_KIND.packageManager] },
@@ -173,10 +173,10 @@ export const LOCKFILE_TOOLING: Readonly<Record<string, ToolingRule>> = {
     name: "Swift Package Manager",
     kinds: [TOOL_KIND.packageManager],
   },
-};
+} satisfies Readonly<Record<string, ToolingRule>>;
 
 /** Manifest files that also identify a non-npm package manager. */
-export const MANIFEST_TOOLING: Readonly<Record<string, ToolingRule>> = {
+export const MANIFEST_TOOLING = {
   "go.mod": { name: "Go modules", kinds: [TOOL_KIND.packageManager] },
   "Cargo.toml": { name: "Cargo", kinds: [TOOL_KIND.packageManager] },
   "composer.json": { name: "Composer", kinds: [TOOL_KIND.packageManager] },
@@ -187,10 +187,10 @@ export const MANIFEST_TOOLING: Readonly<Record<string, ToolingRule>> = {
     name: "Swift Package Manager",
     kinds: [TOOL_KIND.packageManager],
   },
-};
+} satisfies Readonly<Record<string, ToolingRule>>;
 
 /** Exact config filename -> tooling rule. */
-export const CONFIG_TOOLING: Readonly<Record<string, ToolingRule>> = {
+export const CONFIG_TOOLING = {
   "biome.json": {
     name: "Biome",
     kinds: [TOOL_KIND.linter, TOOL_KIND.formatter],
@@ -313,10 +313,10 @@ export const CONFIG_TOOLING: Readonly<Record<string, ToolingRule>> = {
   "playwright.config.js": { name: "Playwright", kinds: [TOOL_KIND.testRunner] },
   "cypress.config.ts": { name: "Cypress", kinds: [TOOL_KIND.testRunner] },
   "cypress.config.js": { name: "Cypress", kinds: [TOOL_KIND.testRunner] },
-};
+} satisfies Readonly<Record<string, ToolingRule>>;
 
 /** npm package name -> tooling rule. */
-export const NPM_TOOLING: Readonly<Record<string, ToolingRule>> = {
+export const NPM_TOOLING = {
   bun: { name: "Bun", kinds: [TOOL_KIND.packageManager] },
   pnpm: { name: "pnpm", kinds: [TOOL_KIND.packageManager] },
   yarn: { name: "Yarn", kinds: [TOOL_KIND.packageManager] },
@@ -354,17 +354,15 @@ export const NPM_TOOLING: Readonly<Record<string, ToolingRule>> = {
   playwright: { name: "Playwright", kinds: [TOOL_KIND.testRunner] },
   "@playwright/test": { name: "Playwright", kinds: [TOOL_KIND.testRunner] },
   cypress: { name: "Cypress", kinds: [TOOL_KIND.testRunner] },
-};
+} satisfies Readonly<Record<string, ToolingRule>>;
 
 /** package.json `packageManager` field value prefix -> package-manager rule. */
-export const PACKAGE_MANAGER_FIELD_TOOLING: Readonly<
-  Record<string, ToolingRule>
-> = {
+export const PACKAGE_MANAGER_FIELD_TOOLING = {
   bun: { name: "Bun", kinds: [TOOL_KIND.packageManager] },
   npm: { name: "npm", kinds: [TOOL_KIND.packageManager] },
   pnpm: { name: "pnpm", kinds: [TOOL_KIND.packageManager] },
   yarn: { name: "Yarn", kinds: [TOOL_KIND.packageManager] },
-};
+} satisfies Readonly<Record<string, ToolingRule>>;
 
 /** A tooling signal matched from a non-npm manifest package token. */
 export interface TextToolingRule extends ToolingRule {
@@ -375,7 +373,7 @@ export interface TextToolingRule extends ToolingRule {
 }
 
 /** Tooling rules for ecosystems with focused declared-dependency parsers. */
-export const TEXT_TOOLING: readonly TextToolingRule[] = [
+export const TEXT_TOOLING = [
   {
     name: "pytest",
     kinds: [TOOL_KIND.testRunner],
@@ -389,7 +387,7 @@ export const TEXT_TOOLING: readonly TextToolingRule[] = [
     pkg: "ruff",
   },
   { name: "Black", kinds: [TOOL_KIND.formatter], eco: "python", pkg: "black" },
-];
+] satisfies readonly TextToolingRule[];
 
 /** A framework signal: a package name in an ecosystem maps to a framework. */
 export interface FrameworkRule {
@@ -406,7 +404,7 @@ export interface FrameworkRule {
  * ones. Deliberately finite and keyed on the real package name; extend as new
  * stacks appear rather than loosening the match.
  */
-export const FRAMEWORKS: readonly FrameworkRule[] = [
+export const FRAMEWORKS = [
   // JS / TS
   { name: "Astro", pkg: "astro", eco: "npm" },
   { name: "Starlight", pkg: "@astrojs/starlight", eco: "npm" },
@@ -447,7 +445,7 @@ export const FRAMEWORKS: readonly FrameworkRule[] = [
   { name: "Actix Web", pkg: "actix-web", eco: "cargo" },
   { name: "Axum", pkg: "axum", eco: "cargo" },
   { name: "Serde", pkg: "serde", eco: "cargo" },
-];
+] satisfies readonly FrameworkRule[];
 
 /** Framework rules indexed by `${eco}:${pkg}` for O(1) lookup. */
 export const FRAMEWORK_INDEX: ReadonlyMap<string, FrameworkRule> = new Map(
@@ -455,8 +453,8 @@ export const FRAMEWORK_INDEX: ReadonlyMap<string, FrameworkRule> = new Map(
 );
 
 /** Ecosystems whose framework rules use focused declared-dependency parsers. */
-export const PARSED_DEPENDENCY_ECOSYSTEMS: readonly string[] = [
+export const PARSED_DEPENDENCY_ECOSYSTEMS = [
   "go",
   "cargo",
   "python",
-];
+] satisfies readonly string[];

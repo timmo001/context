@@ -1,13 +1,52 @@
 /** Focused declared-dependency parsers for supported non-npm manifests. */
+import { Schema } from "effect";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+type ManifestValue =
+  | null
+  | string
+  | number
+  | boolean
+  | bigint
+  | Date
+  | readonly ManifestValue[]
+  | ManifestTable;
+
+interface ManifestTable {
+  readonly [key: string]: ManifestValue;
 }
 
+const ManifestValueSchema: Schema.Codec<
+  ManifestValue,
+  ManifestValue,
+  never,
+  never
+> = Schema.suspend(() =>
+  Schema.Union([
+    Schema.Null,
+    Schema.String,
+    Schema.Number,
+    Schema.Boolean,
+    Schema.BigInt,
+    Schema.Date,
+    Schema.Array(ManifestValueSchema),
+    ManifestTableSchema,
+  ]),
+);
+
+const ManifestTableSchema: Schema.Codec<
+  ManifestTable,
+  ManifestTable,
+  never,
+  never
+> = Schema.Record(Schema.String, ManifestValueSchema);
+
+const isManifestTable = Schema.is(ManifestTableSchema);
+const isString = Schema.is(Schema.String);
+
 function ownValue(
-  value: Record<string, unknown>,
+  value: ManifestTable,
   key: string,
-): unknown | undefined {
+): ManifestValue | undefined {
   return Object.hasOwn(value, key) ? value[key] : undefined;
 }
 
@@ -39,8 +78,7 @@ function parseGoToken(value: string): string | null {
   if (!token) return null;
   if (!token.startsWith('"')) return token;
   try {
-    const parsed: unknown = JSON.parse(token);
-    return typeof parsed === "string" ? parsed : null;
+    return Schema.decodeUnknownSync(Schema.String)(JSON.parse(token));
   } catch {
     return null;
   }
@@ -83,38 +121,41 @@ const CARGO_DEPENDENCY_TABLES = new Set([
 ]);
 
 function collectCargoDependencyTable(
-  table: Record<string, unknown>,
+  table: ManifestTable,
   dependencies: Set<string>,
 ): void {
   for (const [name, declaration] of Object.entries(table)) {
-    const packageName = isRecord(declaration)
+    const packageName = isManifestTable(declaration)
       ? ownValue(declaration, "package")
       : undefined;
     dependencies.add(
-      typeof packageName === "string"
-        ? packageName.toLowerCase()
-        : name.toLowerCase(),
+      isString(packageName) ? packageName.toLowerCase() : name.toLowerCase(),
     );
   }
 }
 
-function collectCargoScope(value: unknown, dependencies: Set<string>): void {
-  if (!isRecord(value)) return;
+function collectCargoScope(
+  value: ManifestValue | undefined,
+  dependencies: Set<string>,
+): void {
+  if (!isManifestTable(value)) return;
   for (const tableName of CARGO_DEPENDENCY_TABLES) {
     const table = ownValue(value, tableName);
-    if (isRecord(table)) collectCargoDependencyTable(table, dependencies);
+    if (isManifestTable(table))
+      collectCargoDependencyTable(table, dependencies);
   }
 }
 
 /** Parse Cargo dependency tables, including target and workspace nesting. */
 export function parseCargoDependencies(text: string): string[] {
-  const parsed = Bun.TOML.parse(text);
-  if (!isRecord(parsed)) return [];
+  const parsed = Schema.decodeUnknownSync(ManifestTableSchema)(
+    Bun.TOML.parse(text),
+  );
   const dependencies = new Set<string>();
   collectCargoScope(parsed, dependencies);
   collectCargoScope(ownValue(parsed, "workspace"), dependencies);
   const targets = ownValue(parsed, "target");
-  if (isRecord(targets)) {
+  if (isManifestTable(targets)) {
     for (const target of Object.values(targets)) {
       collectCargoScope(target, dependencies);
     }
@@ -123,22 +164,22 @@ export function parseCargoDependencies(text: string): string[] {
 }
 
 function addPythonRequirements(
-  value: unknown,
+  value: ManifestValue | undefined,
   dependencies: Set<string>,
 ): void {
   if (!Array.isArray(value)) return;
   for (const requirement of value) {
-    if (typeof requirement !== "string") continue;
+    if (!isString(requirement)) continue;
     const name = pythonRequirementName(requirement);
     if (name) dependencies.add(name);
   }
 }
 
 function collectPythonDependencyTable(
-  value: unknown,
+  value: ManifestValue | undefined,
   dependencies: Set<string>,
 ): void {
-  if (!isRecord(value)) return;
+  if (!isManifestTable(value)) return;
   for (const name of Object.keys(value)) {
     if (name.toLowerCase() === "python") continue;
     dependencies.add(name.toLowerCase().replace(/[._-]+/g, "-"));
@@ -146,10 +187,10 @@ function collectPythonDependencyTable(
 }
 
 function collectRequirementGroups(
-  value: unknown,
+  value: ManifestValue | undefined,
   dependencies: Set<string>,
 ): void {
-  if (!isRecord(value)) return;
+  if (!isManifestTable(value)) return;
   for (const group of Object.values(value)) {
     addPythonRequirements(group, dependencies);
   }
@@ -157,11 +198,12 @@ function collectRequirementGroups(
 
 /** Parse PEP 621 and common tool dependency containers from pyproject.toml. */
 export function parsePyprojectDependencies(text: string): string[] {
-  const parsed = Bun.TOML.parse(text);
-  if (!isRecord(parsed)) return [];
+  const parsed = Schema.decodeUnknownSync(ManifestTableSchema)(
+    Bun.TOML.parse(text),
+  );
   const dependencies = new Set<string>();
   const project = ownValue(parsed, "project");
-  if (isRecord(project)) {
+  if (isManifestTable(project)) {
     addPythonRequirements(ownValue(project, "dependencies"), dependencies);
     collectRequirementGroups(
       ownValue(project, "optional-dependencies"),
@@ -170,14 +212,14 @@ export function parsePyprojectDependencies(text: string): string[] {
   }
   collectRequirementGroups(ownValue(parsed, "dependency-groups"), dependencies);
   const buildSystem = ownValue(parsed, "build-system");
-  if (isRecord(buildSystem)) {
+  if (isManifestTable(buildSystem)) {
     addPythonRequirements(ownValue(buildSystem, "requires"), dependencies);
   }
 
   const tool = ownValue(parsed, "tool");
-  if (!isRecord(tool)) return sorted(dependencies);
+  if (!isManifestTable(tool)) return sorted(dependencies);
   const poetry = ownValue(tool, "poetry");
-  if (isRecord(poetry)) {
+  if (isManifestTable(poetry)) {
     collectPythonDependencyTable(
       ownValue(poetry, "dependencies"),
       dependencies,
@@ -187,9 +229,9 @@ export function parsePyprojectDependencies(text: string): string[] {
       dependencies,
     );
     const groups = ownValue(poetry, "group");
-    if (isRecord(groups)) {
+    if (isManifestTable(groups)) {
       for (const group of Object.values(groups)) {
-        if (isRecord(group)) {
+        if (isManifestTable(group)) {
           collectPythonDependencyTable(
             ownValue(group, "dependencies"),
             dependencies,
@@ -199,19 +241,19 @@ export function parsePyprojectDependencies(text: string): string[] {
     }
   }
   const pdm = ownValue(tool, "pdm");
-  if (isRecord(pdm)) {
+  if (isManifestTable(pdm)) {
     collectRequirementGroups(ownValue(pdm, "dev-dependencies"), dependencies);
   }
   const uv = ownValue(tool, "uv");
-  if (isRecord(uv)) {
+  if (isManifestTable(uv)) {
     addPythonRequirements(ownValue(uv, "dev-dependencies"), dependencies);
   }
   const hatch = ownValue(tool, "hatch");
-  if (isRecord(hatch)) {
+  if (isManifestTable(hatch)) {
     const envs = ownValue(hatch, "envs");
-    if (isRecord(envs)) {
+    if (isManifestTable(envs)) {
       for (const env of Object.values(envs)) {
-        if (isRecord(env)) {
+        if (isManifestTable(env)) {
           addPythonRequirements(ownValue(env, "dependencies"), dependencies);
         }
       }
@@ -233,12 +275,13 @@ export function parseRequirementsDependencies(text: string): string[] {
 
 /** Parse Pipfile package and dev-package TOML tables. */
 export function parsePipfileDependencies(text: string): string[] {
-  const parsed = Bun.TOML.parse(text);
-  if (!isRecord(parsed)) return [];
+  const parsed = Schema.decodeUnknownSync(ManifestTableSchema)(
+    Bun.TOML.parse(text),
+  );
   const dependencies = new Set<string>();
   for (const tableName of ["packages", "dev-packages"]) {
     const table = ownValue(parsed, tableName);
-    if (!isRecord(table)) continue;
+    if (!isManifestTable(table)) continue;
     for (const name of Object.keys(table)) {
       dependencies.add(name.toLowerCase().replace(/[._-]+/g, "-"));
     }

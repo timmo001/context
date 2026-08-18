@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 
 /** Write text to stdout exactly as provided. */
 export function writeText(text: string): Effect.Effect<void> {
@@ -6,20 +6,20 @@ export function writeText(text: string): Effect.Effect<void> {
 }
 
 /** Format an unknown command error for CLI output. */
-export function formatCommandError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { readonly message?: unknown }).message;
-    if (typeof message === "string" && message.length > 0) return message;
+export function formatCommandError(cause: unknown): string {
+  if (cause instanceof Error) return cause.message;
+  if (Predicate.hasProperty(cause, "message")) {
+    const message = cause.message;
+    if (Predicate.isString(message) && message.length > 0) return message;
   }
-  return String(error);
+  return String(cause);
 }
 
 /** Print a labelled command error and exit non-zero. */
 export function handleCommandError(label: string) {
-  return Effect.catch((error: unknown) =>
+  return Effect.catch((cause: unknown) =>
     Effect.sync(() => {
-      console.error(`[${label}] ${formatCommandError(error)}`);
+      console.error(`[${label}] ${formatCommandError(cause)}`);
       process.exitCode = 1;
     }),
   );

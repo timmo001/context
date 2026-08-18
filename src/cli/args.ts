@@ -210,5 +210,5 @@ export function optionValue(
   name: `--${string}`,
 ): string | undefined {
   const value = args.options.get(name);
-  return typeof value === "string" ? value : undefined;
+  return value === true ? undefined : value;
 }

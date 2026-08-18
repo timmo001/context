@@ -136,6 +136,41 @@ describe("collectPullRequest", () => {
     });
   });
 
+  test("tolerates malformed optional fields and collection entries", async () => {
+    const github: GitHubService = {
+      json: () =>
+        Effect.succeed({
+          number: 42,
+          title: "Improve context",
+          state: 123,
+          isDraft: "no",
+          comments: [
+            null,
+            { author: "unexpected", createdAt: false, body: "kept" },
+          ],
+          reviews: "unexpected",
+          labels: [false, { name: "bug" }],
+        }),
+      run: () => Effect.die("Unexpected checks command"),
+    };
+
+    const result = await collect(github, {
+      ...GIT_CONTEXT_DEFAULTS,
+      labels: true,
+      comments: true,
+      reviews: true,
+    });
+
+    expect(result.data?.summary.state).toBe("");
+    expect(result.data?.summary.isDraft).toBe(false);
+    expect(result.data?.summary.commentCount).toBe(2);
+    expect(result.data?.comments).toEqual([
+      { author: "(unknown)", createdAt: "", body: "kept" },
+    ]);
+    expect(result.data?.reviews).toEqual([]);
+    expect(result.data?.labels).toEqual(["bug"]);
+  });
+
   test("retains useful output from non-zero check results", async () => {
     let calls = 0;
     const executor: CommandExecutorService = {

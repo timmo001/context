@@ -4,6 +4,7 @@ export function escapeTextControls(
   preserveNewlines = false,
 ): string {
   return value.replace(
+    // oxlint-disable-next-line eslint/no-control-regex -- Escaping these control characters is the purpose of this boundary.
     /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gi,
     (character) => {
       if (preserveNewlines && character === "\n") return "\n";

@@ -1,8 +1,27 @@
 import { describe, expect, test } from "bun:test";
+import { Schema } from "effect";
 import type { StackContextData } from "../../src/stack/context/model.js";
 import { STACK_LIMITS } from "../../src/stack/context/model.js";
 import { renderStackContextJson } from "../../src/stack/context/renderJson.js";
 import { renderStackContextText } from "../../src/stack/context/renderText.js";
+
+const truncationSchema = Schema.Struct({
+  reason: Schema.String,
+  limit: Schema.Number,
+  observed: Schema.optionalKey(Schema.Number),
+  omitted: Schema.optionalKey(Schema.Number),
+  subject: Schema.optionalKey(Schema.String),
+});
+const stackPayloadSchema = Schema.fromJsonString(
+  Schema.Struct({
+    root: Schema.String,
+    truncations: Schema.Array(truncationSchema),
+    ecosystems: Schema.Array(
+      Schema.Struct({ manifests: Schema.Array(Schema.String) }),
+    ),
+  }),
+);
+const decodeStackPayload = Schema.decodeUnknownSync(stackPayloadSchema);
 
 function stack(overrides: Partial<StackContextData> = {}): StackContextData {
   return {
@@ -25,13 +44,13 @@ describe("bounded renderers", () => {
       { length: 15 },
       (_, index) => `p/${index}.json`,
     );
-    const payload = JSON.parse(
+    const payload = decodeStackPayload(
       renderStackContextJson(
         stack({
           ecosystems: [{ name: "npm", manifests, confidence: "authoritative" }],
         }),
       ),
-    ) as Record<string, unknown>;
+    );
 
     expect("truncated" in payload).toBe(false);
     expect(payload.truncations).toContainEqual({
@@ -41,9 +60,7 @@ describe("bounded renderers", () => {
       omitted: 3,
       subject: "npm",
     });
-    expect(
-      (payload.ecosystems as Array<{ manifests: string[] }>)[0]?.manifests,
-    ).toHaveLength(12);
+    expect(payload.ecosystems[0]?.manifests).toHaveLength(12);
   });
 
   test("bounds JSON values and total output", () => {
@@ -53,10 +70,7 @@ describe("bounded renderers", () => {
         warnings: Array.from({ length: 50 }, () => "w".repeat(20_000)),
       }),
     );
-    const parsed = JSON.parse(payload) as {
-      root: string;
-      truncations: Array<{ reason: string }>;
-    };
+    const parsed = decodeStackPayload(payload);
     expect(new TextEncoder().encode(payload).byteLength).toBeLessThanOrEqual(
       STACK_LIMITS.jsonOutputBytes,
     );

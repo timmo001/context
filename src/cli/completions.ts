@@ -14,7 +14,7 @@ const COMMAND_NAME = "context";
 
 /** Whether a shell name is supported. */
 export function isCompletionShell(shell: string): shell is CompletionShell {
-  return (SUPPORTED_SHELLS as readonly string[]).includes(shell);
+  return SUPPORTED_SHELLS.some((supportedShell) => supportedShell === shell);
 }
 
 /** Comma-separated shell list for error messages. */
@@ -42,10 +42,6 @@ function optionWords(command: CliCommandSpec): string {
   return (command.options ?? [])
     .flatMap((option) => [option.name, ...(option.short ? [option.short] : [])])
     .join(" ");
-}
-
-function commandForWord(word: string): CliCommandSpec | undefined {
-  return cliCommands.find((command) => command.name === word);
 }
 
 function choiceWords(option: CliOptionSpec): string | undefined {

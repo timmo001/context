@@ -42,6 +42,14 @@ import type {
   WorkScope,
 } from "./model.js";
 
+type MutableBranchMetadata = {
+  -readonly [Key in keyof BranchMetadata]: BranchMetadata[Key];
+};
+
+type MutableDiffSection = {
+  -readonly [Key in keyof DiffSection]: DiffSection[Key];
+};
+
 /**
  * Minimum number of recent commits to list when HEAD is on the repo's default
  * branch. On a feature branch the full set of branch-unique commits is listed.
@@ -260,25 +268,27 @@ export function buildBranchContext(
         : false;
     const forkBase = defaultRefExists ? defaultBranchRef : null;
 
-    const branchMetadata: BranchMetadata | undefined = options.branchMetadata
-      ? {
-          currentBranch: branch,
-          repositoryRoot,
-          repositoryName,
-          headSha,
-          defaultRemote: remote,
-          defaultBranch,
-          baseRef,
-          upstreamRef: upstream ?? "",
-          ahead,
-          behind,
-          onDefaultBranch,
-          remotes,
-          ...(options.remoteDetails
-            ? { remoteDetails: yield* collectRemoteDetails(remotes) }
-            : {}),
-        }
-      : undefined;
+    let branchMetadata: BranchMetadata | undefined;
+    if (options.branchMetadata) {
+      const metadata: MutableBranchMetadata = {
+        currentBranch: branch,
+        repositoryRoot,
+        repositoryName,
+        headSha,
+        defaultRemote: remote,
+        defaultBranch,
+        baseRef,
+        upstreamRef: upstream ?? "",
+        ahead,
+        behind,
+        onDefaultBranch,
+        remotes,
+      };
+      if (options.remoteDetails) {
+        metadata.remoteDetails = yield* collectRemoteDetails(remotes);
+      }
+      branchMetadata = metadata;
+    }
 
     const status = options.status ? yield* collectStatus() : undefined;
 
@@ -491,11 +501,11 @@ function collectDiffs(
       ? yield* resolveBranchDiff(context)
       : undefined;
 
-    return {
-      ...(unstaged !== undefined ? { unstaged } : {}),
-      ...(staged !== undefined ? { staged } : {}),
-      ...(branch !== undefined ? { branch } : {}),
-    };
+    const diffs: MutableDiffSection = {};
+    if (unstaged !== undefined) diffs.unstaged = unstaged;
+    if (staged !== undefined) diffs.staged = staged;
+    if (branch !== undefined) diffs.branch = branch;
+    return diffs;
   });
 }
 

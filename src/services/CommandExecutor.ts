@@ -73,16 +73,16 @@ function decodeOutput(output: CapturedOutput): string {
 function commandError(
   command: string,
   reason: CommandError["reason"],
-  error: unknown,
+  cause: unknown,
 ): CommandError {
-  return error instanceof CommandError
-    ? error
+  return cause instanceof CommandError
+    ? cause
     : new CommandError({
         command,
         exitCode: -1,
         reason,
         stdout: "",
-        stderr: error instanceof Error ? error.message : String(error),
+        stderr: cause instanceof Error ? cause.message : String(cause),
       });
 }
 

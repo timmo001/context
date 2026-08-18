@@ -17,6 +17,10 @@ import type {
   TruncationNotice,
 } from "./model.js";
 
+type MutableBranchMetadata = {
+  -readonly [Key in keyof BranchMetadata]: BranchMetadata[Key];
+};
+
 /** Truncate text to a character budget, appending a notice when it overflows. */
 function limited(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -85,7 +89,7 @@ function safeBranchMetadata(
       retained: METADATA_LIMITS.remoteDetails,
     });
   }
-  return {
+  const safe: MutableBranchMetadata = {
     ...metadata,
     repositoryRoot: metadataValue(
       metadata.repositoryRoot,
@@ -121,31 +125,30 @@ function safeBranchMetadata(
       .map((remote, index) =>
         remoteValue(remote, `branchMetadata.remotes[${index}]`),
       ),
-    ...(metadata.remoteDetails
-      ? {
-          remoteDetails: metadata.remoteDetails
-            .slice(0, METADATA_LIMITS.remoteDetails)
-            .map((remote, index) => ({
-              name: remoteValue(
-                remote.name,
-                `branchMetadata.remoteDetails[${index}].name`,
-              ),
-              fetchUrl: limitedWithNotice(
-                escapeTextControls(remote.fetchUrl),
-                CHAR_LIMITS.remoteUrl,
-                `branchMetadata.remoteDetails[${index}].fetchUrl`,
-                truncations,
-              ),
-              pushUrl: limitedWithNotice(
-                escapeTextControls(remote.pushUrl),
-                CHAR_LIMITS.remoteUrl,
-                `branchMetadata.remoteDetails[${index}].pushUrl`,
-                truncations,
-              ),
-            })),
-        }
-      : {}),
   };
+  if (metadata.remoteDetails) {
+    safe.remoteDetails = metadata.remoteDetails
+      .slice(0, METADATA_LIMITS.remoteDetails)
+      .map((remote, index) => ({
+        name: remoteValue(
+          remote.name,
+          `branchMetadata.remoteDetails[${index}].name`,
+        ),
+        fetchUrl: limitedWithNotice(
+          escapeTextControls(remote.fetchUrl),
+          CHAR_LIMITS.remoteUrl,
+          `branchMetadata.remoteDetails[${index}].fetchUrl`,
+          truncations,
+        ),
+        pushUrl: limitedWithNotice(
+          escapeTextControls(remote.pushUrl),
+          CHAR_LIMITS.remoteUrl,
+          `branchMetadata.remoteDetails[${index}].pushUrl`,
+          truncations,
+        ),
+      }));
+  }
+  return safe;
 }
 
 /**
@@ -163,18 +166,18 @@ function recentCommitsText(records: readonly CommitRecord[]): string {
 
 /** Serialised pull request block for the JSON payload. */
 interface PullRequestJson {
-  readonly summary: PullRequestData["summary"];
-  readonly description?: string;
-  readonly labels?: readonly string[];
-  readonly comments?: PullRequestData["comments"];
-  readonly reviews?: PullRequestData["reviews"];
-  readonly checks?: string;
-  readonly truncations: PullRequestData["truncations"];
+  summary: PullRequestData["summary"];
+  description?: string;
+  labels?: readonly string[];
+  comments?: PullRequestData["comments"];
+  reviews?: PullRequestData["reviews"];
+  checks?: string;
+  truncations: PullRequestData["truncations"];
 }
 
 /** Serialise the bounded pull request block and escape control characters. */
 function toPullRequestJson(pr: PullRequestData): PullRequestJson {
-  return {
+  const json: PullRequestJson = {
     summary: {
       ...pr.summary,
       state: escapeTextControls(pr.summary.state),
@@ -185,36 +188,60 @@ function toPullRequestJson(pr: PullRequestData): PullRequestJson {
       headRefName: escapeTextControls(pr.summary.headRefName),
       baseRefName: escapeTextControls(pr.summary.baseRefName),
     },
-    ...(pr.description !== undefined
-      ? { description: safeMultiline(pr.description) }
-      : {}),
-    ...(pr.labels !== undefined
-      ? { labels: pr.labels.map((label) => escapeTextControls(label)) }
-      : {}),
-    ...(pr.comments !== undefined
-      ? {
-          comments: pr.comments.map((comment) => ({
-            author: escapeTextControls(comment.author),
-            createdAt: escapeTextControls(comment.createdAt),
-            body: safeMultiline(comment.body),
-          })),
-        }
-      : {}),
-    ...(pr.reviews !== undefined
-      ? {
-          reviews: pr.reviews.map((review) => ({
-            author: escapeTextControls(review.author),
-            state: escapeTextControls(review.state),
-            submittedAt: escapeTextControls(review.submittedAt),
-            body: safeMultiline(review.body),
-          })),
-        }
-      : {}),
-    ...(pr.checks !== undefined
-      ? { checks: limited(safeMultiline(pr.checks), CHAR_LIMITS.checks) }
-      : {}),
     truncations: pr.truncations,
   };
+  if (pr.description !== undefined) {
+    json.description = safeMultiline(pr.description);
+  }
+  if (pr.labels !== undefined) {
+    json.labels = pr.labels.map((label) => escapeTextControls(label));
+  }
+  if (pr.comments !== undefined) {
+    json.comments = pr.comments.map((comment) => ({
+      author: escapeTextControls(comment.author),
+      createdAt: escapeTextControls(comment.createdAt),
+      body: safeMultiline(comment.body),
+    }));
+  }
+  if (pr.reviews !== undefined) {
+    json.reviews = pr.reviews.map((review) => ({
+      author: escapeTextControls(review.author),
+      state: escapeTextControls(review.state),
+      submittedAt: escapeTextControls(review.submittedAt),
+      body: safeMultiline(review.body),
+    }));
+  }
+  if (pr.checks !== undefined) {
+    json.checks = limited(safeMultiline(pr.checks), CHAR_LIMITS.checks);
+  }
+  return json;
+}
+
+interface BranchContextJson {
+  inRepo: boolean;
+  branchMetadata?: BranchMetadata;
+  status?: {
+    short: string;
+    unstaged: string;
+    staged: string;
+    untracked: string;
+  };
+  workScope?:
+    | {
+        state: "collected";
+        baseRef: string;
+        branchCommits: string;
+        branchFiles: string;
+        branchDiffStat: string;
+      }
+    | {
+        state: "not-applicable" | "unresolved";
+        reason: string;
+      };
+  commits?: string;
+  pullRequest: PullRequestJson | null;
+  warnings: readonly string[];
+  truncations: readonly TruncationNotice[];
 }
 
 function limitedWarnings(
@@ -273,98 +300,89 @@ export function renderBranchContextJson(data: BranchContextData): string {
     ? safeBranchMetadata(data.branchMetadata, truncations)
     : undefined;
 
-  const payload = {
+  const payload: BranchContextJson = {
     inRepo: true,
-    ...(branchMetadata ? { branchMetadata } : {}),
-    ...(data.status
-      ? {
-          status: {
-            short: limitedWithNotice(
-              data.status.short,
-              CHAR_LIMITS.status,
-              "status.short",
-              truncations,
-            ),
-            unstaged: limitedWithNotice(
-              nameStatusText(data.status.unstaged),
-              CHAR_LIMITS.nameStatus,
-              "status.unstaged",
-              truncations,
-            ),
-            staged: limitedWithNotice(
-              nameStatusText(data.status.staged),
-              CHAR_LIMITS.nameStatus,
-              "status.staged",
-              truncations,
-            ),
-            untracked: limitedWithNotice(
-              nameStatusText(data.status.untracked),
-              CHAR_LIMITS.nameStatus,
-              "status.untracked",
-              truncations,
-            ),
-          },
-        }
-      : {}),
-    ...(data.workScope?.state === "collected"
-      ? {
-          workScope: {
-            state: data.workScope.state,
-            baseRef: escapeTextControls(data.workScope.baseRef),
-            branchCommits: limitedWithNotice(
-              data.workScope.branchCommits
-                .map((commit) =>
-                  `${escapeTextControls(commit.hash)} ${escapeTextControls(commit.subject)}`.trimEnd(),
-                )
-                .join("\n"),
-              CHAR_LIMITS.commits,
-              "workScope.branchCommits",
-              truncations,
-            ),
-            branchFiles: limitedWithNotice(
-              nameStatusText(data.workScope.branchFiles),
-              CHAR_LIMITS.nameStatus,
-              "workScope.branchFiles",
-              truncations,
-            ),
-            branchDiffStat: limitedWithNotice(
-              safeMultiline(data.workScope.branchDiffStat),
-              CHAR_LIMITS.diffStat,
-              "workScope.branchDiffStat",
-              truncations,
-            ),
-          },
-        }
-      : data.workScope
-        ? {
-            workScope: {
-              ...data.workScope,
-              reason: escapeTextControls(data.workScope.reason),
-            },
-          }
-        : {}),
-    ...(recentCommits !== undefined
-      ? {
-          commits: limitedWithNotice(
-            recentCommits,
-            CHAR_LIMITS.commits,
-            "commits",
-            truncations,
-          ),
-        }
-      : {}),
     pullRequest: data.pullRequest ? toPullRequestJson(data.pullRequest) : null,
     warnings: limitedWarnings(data.warnings, truncations),
     truncations,
   };
+  if (branchMetadata) payload.branchMetadata = branchMetadata;
+  if (data.status) {
+    payload.status = {
+      short: limitedWithNotice(
+        data.status.short,
+        CHAR_LIMITS.status,
+        "status.short",
+        truncations,
+      ),
+      unstaged: limitedWithNotice(
+        nameStatusText(data.status.unstaged),
+        CHAR_LIMITS.nameStatus,
+        "status.unstaged",
+        truncations,
+      ),
+      staged: limitedWithNotice(
+        nameStatusText(data.status.staged),
+        CHAR_LIMITS.nameStatus,
+        "status.staged",
+        truncations,
+      ),
+      untracked: limitedWithNotice(
+        nameStatusText(data.status.untracked),
+        CHAR_LIMITS.nameStatus,
+        "status.untracked",
+        truncations,
+      ),
+    };
+  }
+  if (data.workScope?.state === "collected") {
+    payload.workScope = {
+      state: data.workScope.state,
+      baseRef: escapeTextControls(data.workScope.baseRef),
+      branchCommits: limitedWithNotice(
+        data.workScope.branchCommits
+          .map((commit) =>
+            `${escapeTextControls(commit.hash)} ${escapeTextControls(commit.subject)}`.trimEnd(),
+          )
+          .join("\n"),
+        CHAR_LIMITS.commits,
+        "workScope.branchCommits",
+        truncations,
+      ),
+      branchFiles: limitedWithNotice(
+        nameStatusText(data.workScope.branchFiles),
+        CHAR_LIMITS.nameStatus,
+        "workScope.branchFiles",
+        truncations,
+      ),
+      branchDiffStat: limitedWithNotice(
+        safeMultiline(data.workScope.branchDiffStat),
+        CHAR_LIMITS.diffStat,
+        "workScope.branchDiffStat",
+        truncations,
+      ),
+    };
+  } else if (data.workScope) {
+    payload.workScope = {
+      ...data.workScope,
+      reason: escapeTextControls(data.workScope.reason),
+    };
+  }
+  if (recentCommits !== undefined) {
+    payload.commits = limitedWithNotice(
+      recentCommits,
+      CHAR_LIMITS.commits,
+      "commits",
+      truncations,
+    );
+  }
 
   const rendered = JSON.stringify(payload);
   if (rendered.length <= CHAR_LIMITS.jsonOutput) return rendered;
 
   const warning = `Branch context payload exceeded ${CHAR_LIMITS.jsonOutput} characters; large sections were omitted.`;
-  return JSON.stringify({
+  const fallback: BranchContextJson = {
     inRepo: true,
-    ...(branchMetadata ? { branchMetadata } : {}),
     pullRequest: null,
     warnings: limitedWarnings([...data.warnings, warning], truncations),
     truncations: [
@@ -376,5 +394,7 @@ export function renderBranchContextJson(data: BranchContextData): string {
         retained: CHAR_LIMITS.jsonOutput,
       },
     ],
-  });
+  };
+  if (branchMetadata) fallback.branchMetadata = branchMetadata;
+  return JSON.stringify(fallback);
 }

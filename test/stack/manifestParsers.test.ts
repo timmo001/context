@@ -115,6 +115,21 @@ dependencies = ["homeassistant"]
     ]);
   });
 
+  test("ignores malformed dependency containers while keeping valid ones", () => {
+    expect(
+      parsePyprojectDependencies(`
+[project]
+dependencies = "Django"
+
+[project.optional-dependencies]
+test = ["PyTest>=8", 42]
+
+[tool.uv]
+dev-dependencies = { ruff = "0.12" }
+`),
+    ).toEqual(["pytest"]);
+  });
+
   test("normalises requirements and ignores comments, options, and URLs", () => {
     expect(
       pythonRequirementName("Foo_Bar[baz] ~= 1.2 ; python_version > '3'"),

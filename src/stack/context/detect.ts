@@ -9,6 +9,7 @@ import {
   statSync,
 } from "node:fs";
 import { basename, extname, join } from "node:path";
+import { Schema } from "effect";
 import { DEFAULT_COMMAND_TIMEOUT_MS } from "../../lib/env.js";
 import {
   CONFIG_TOOLING,
@@ -96,6 +97,31 @@ interface PackageJsonData {
   readonly packageManager: string | null;
 }
 
+interface PackageJsonManifest {
+  readonly dependencies?: Schema.Json;
+  readonly devDependencies?: Schema.Json;
+  readonly peerDependencies?: Schema.Json;
+  readonly optionalDependencies?: Schema.Json;
+  readonly packageManager?: Schema.Json;
+}
+
+const PackageJsonManifestSchema: Schema.Codec<
+  PackageJsonManifest,
+  PackageJsonManifest,
+  never,
+  never
+> = Schema.Struct({
+  dependencies: Schema.optional(Schema.Json),
+  devDependencies: Schema.optional(Schema.Json),
+  peerDependencies: Schema.optional(Schema.Json),
+  optionalDependencies: Schema.optional(Schema.Json),
+  packageManager: Schema.optional(Schema.Json),
+});
+
+const PackageDependencyBlockSchema = Schema.Record(Schema.String, Schema.Json);
+const isPackageDependencyBlock = Schema.is(PackageDependencyBlockSchema);
+const isString = Schema.is(Schema.String);
+
 interface ManifestCacheEntry {
   text?: string;
   readAttempted: boolean;
@@ -109,13 +135,6 @@ function ownLookup<T>(
   record: Readonly<Record<string, T>>,
   key: string,
 ): T | undefined {
-  return Object.hasOwn(record, key) ? record[key] : undefined;
-}
-
-function ownValue(
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-): unknown | undefined {
   return Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
@@ -469,7 +488,7 @@ function walk(
       subject: eco,
     });
   }
-  for (const [language, omitted] of acc.langLocationOverflow) {
+  for (const language of acc.langLocationOverflow.keys()) {
     addTruncation(state, {
       reason: "languageLocations",
       limit: STACK_COLLECTION_LIMITS.locationsPerLanguage,
@@ -481,27 +500,22 @@ function walk(
 }
 
 function packageJsonData(text: string): PackageJsonData {
-  const parsed: unknown = JSON.parse(text);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new TypeError("package.json must contain an object");
-  }
-  const pkg = parsed as Record<string, unknown>;
+  const pkg = Schema.decodeUnknownSync(PackageJsonManifestSchema)(
+    JSON.parse(text),
+  );
   const names = new Set<string>();
-  for (const field of [
-    "dependencies",
-    "devDependencies",
-    "peerDependencies",
-    "optionalDependencies",
+  for (const block of [
+    pkg.dependencies,
+    pkg.devDependencies,
+    pkg.peerDependencies,
+    pkg.optionalDependencies,
   ]) {
-    const block = ownValue(pkg, field);
-    if (typeof block !== "object" || block === null || Array.isArray(block))
-      continue;
+    if (!isPackageDependencyBlock(block)) continue;
     for (const key of Object.keys(block)) names.add(key);
   }
-  const packageManager = ownValue(pkg, "packageManager");
   return {
     dependencyNames: [...names].sort(),
-    packageManager: typeof packageManager === "string" ? packageManager : null,
+    packageManager: isString(pkg.packageManager) ? pkg.packageManager : null,
   };
 }
 

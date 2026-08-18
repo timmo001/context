@@ -7,7 +7,7 @@
  * no PR for the branch, network error) resolves to `null` with a warning so the
  * branch-context snapshot never fails on the pull request lookup.
  */
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { GitHub } from "../services/GitHub.js";
 import type {
   BranchContextOptions,
@@ -27,10 +27,56 @@ export interface PullRequestResult {
   readonly warnings: readonly string[];
 }
 
-/** Narrow an unknown value to a record for safe field access. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
+const GitHubObject = Schema.Record(Schema.String, Schema.Json);
+
+const stringWithFallback = Schema.String.pipe(
+  Schema.catchDecoding(() => Effect.succeed(Option.some(""))),
+  Schema.withDecodingDefaultKey(Effect.succeed("")),
+);
+const booleanWithFallback = Schema.Boolean.pipe(
+  Schema.catchDecoding(() => Effect.succeed(Option.some(false))),
+  Schema.withDecodingDefaultKey(Effect.succeed(false)),
+);
+const jsonArrayWithFallback = Schema.Array(Schema.Json).pipe(
+  Schema.catchDecoding(() => Effect.succeed(Option.some([]))),
+  Schema.withDecodingDefaultKey(Effect.succeed([])),
+);
+
+const GitHubPullRequest = Schema.Struct({
+  number: Schema.Number,
+  title: Schema.String,
+  state: stringWithFallback,
+  url: stringWithFallback,
+  isDraft: booleanWithFallback,
+  mergeStateStatus: stringWithFallback,
+  headRefName: stringWithFallback,
+  baseRefName: stringWithFallback,
+  reviewDecision: stringWithFallback,
+  body: stringWithFallback,
+  comments: jsonArrayWithFallback,
+  reviews: jsonArrayWithFallback,
+  labels: jsonArrayWithFallback,
+});
+
+const GitHubAuthor = Schema.Struct({ login: stringWithFallback });
+const authorWithFallback = GitHubAuthor.pipe(
+  Schema.catchDecoding(() => Effect.succeed(Option.some({ login: "" }))),
+  Schema.withDecodingDefaultKey(Effect.succeed({ login: "" })),
+);
+const GitHubComment = Schema.Struct({
+  author: authorWithFallback,
+  createdAt: stringWithFallback,
+  body: stringWithFallback,
+});
+const GitHubReview = Schema.Struct({
+  author: authorWithFallback,
+  state: stringWithFallback,
+  submittedAt: stringWithFallback,
+  body: stringWithFallback,
+});
+const GitHubLabel = Schema.Struct({ name: stringWithFallback });
+
+type GitHubPullRequestInput = typeof GitHubPullRequest.Type;
 
 interface TextBudget {
   remaining: number;
@@ -46,17 +92,14 @@ function githubFailureDetail(stderr: string, command: string): string {
   return warningDetail(stderr.trim() || command);
 }
 
-/** Read and bound a string field, defaulting to empty. */
-function stringField(
-  record: Record<string, unknown>,
-  field: string,
+/** Bound a string field. */
+function boundedText(
+  value: string,
   path: string,
   max: number,
   truncations: TruncationNotice[],
   budget?: TextBudget,
 ): string {
-  const value = record[field];
-  if (typeof value !== "string") return "";
   const retained = Math.min(max, budget?.remaining ?? max, value.length);
   if (budget) budget.remaining -= retained;
   if (retained < value.length) {
@@ -70,61 +113,41 @@ function stringField(
   return value.slice(0, retained);
 }
 
-/** Read a boolean field, defaulting to false. */
-function booleanField(record: Record<string, unknown>, field: string): boolean {
-  const value = record[field];
-  return typeof value === "boolean" ? value : false;
-}
-
 /** Read a `gh` author object's login, defaulting to `(unknown)`. */
 function authorLogin(
-  value: unknown,
+  author: typeof GitHubAuthor.Type,
   path: string,
   truncations: TruncationNotice[],
   budget?: TextBudget,
 ): string {
-  if (isRecord(value)) {
-    const login = stringField(
-      value,
-      "login",
-      path,
-      PR_LIMITS.scalar,
-      truncations,
-      budget,
-    );
-    if (login) return login;
-  }
-  return "(unknown)";
+  const login = boundedText(
+    author.login,
+    path,
+    PR_LIMITS.scalar,
+    truncations,
+    budget,
+  );
+  return login || "(unknown)";
 }
 
 /** Parse the always-on summary fields from a `gh pr view` record. */
 function parseSummary(
-  record: Record<string, unknown>,
+  record: GitHubPullRequestInput,
   truncations: TruncationNotice[],
 ): PullRequestSummary | null {
   const number = record.number;
-  const title = record.title;
-  if (
-    typeof number !== "number" ||
-    !Number.isSafeInteger(number) ||
-    number <= 0 ||
-    typeof title !== "string"
-  )
-    return null;
-  const comments = record.comments;
-  const commentCount = Array.isArray(comments) ? comments.length : 0;
+  if (!Number.isSafeInteger(number) || number <= 0) return null;
+  const commentCount = record.comments.length;
   return {
     number,
-    state: stringField(
-      record,
-      "state",
+    state: boundedText(
+      record.state,
       "summary.state",
       PR_LIMITS.scalar,
       truncations,
     ),
-    title: stringField(
-      record,
-      "title",
+    title: boundedText(
+      record.title,
       "summary.title",
       PR_LIMITS.title,
       truncations,
@@ -132,32 +155,28 @@ function parseSummary(
     commentCount: Number.isSafeInteger(commentCount)
       ? Math.min(commentCount, Number.MAX_SAFE_INTEGER)
       : 0,
-    reviewDecision: stringField(
-      record,
-      "reviewDecision",
+    reviewDecision: boundedText(
+      record.reviewDecision,
       "summary.reviewDecision",
       PR_LIMITS.scalar,
       truncations,
     ),
-    url: stringField(record, "url", "summary.url", PR_LIMITS.url, truncations),
-    isDraft: booleanField(record, "isDraft"),
-    mergeStateStatus: stringField(
-      record,
-      "mergeStateStatus",
+    url: boundedText(record.url, "summary.url", PR_LIMITS.url, truncations),
+    isDraft: record.isDraft,
+    mergeStateStatus: boundedText(
+      record.mergeStateStatus,
       "summary.mergeStateStatus",
       PR_LIMITS.scalar,
       truncations,
     ),
-    headRefName: stringField(
-      record,
-      "headRefName",
+    headRefName: boundedText(
+      record.headRefName,
       "summary.headRefName",
       PR_LIMITS.scalar,
       truncations,
     ),
-    baseRefName: stringField(
-      record,
-      "baseRefName",
+    baseRefName: boundedText(
+      record.baseRefName,
       "summary.baseRefName",
       PR_LIMITS.scalar,
       truncations,
@@ -167,11 +186,15 @@ function parseSummary(
 
 /** Parse conversation comments from a `gh pr view` record. */
 function parseComments(
-  value: unknown,
+  value: readonly Schema.Json[],
   truncations: TruncationNotice[],
 ): readonly PullRequestComment[] {
-  if (!Array.isArray(value)) return [];
-  const records = value.filter(isRecord);
+  const records = value.flatMap((item) =>
+    Option.match(Schema.decodeUnknownOption(GitHubComment)(item), {
+      onNone: () => [],
+      onSome: (comment) => [comment],
+    }),
+  );
   const retained = records.slice(0, PR_LIMITS.comments);
   if (retained.length < records.length) {
     truncations.push({
@@ -189,17 +212,15 @@ function parseComments(
       truncations,
       budget,
     ),
-    createdAt: stringField(
-      comment,
-      "createdAt",
+    createdAt: boundedText(
+      comment.createdAt,
       `comments[${index}].createdAt`,
       PR_LIMITS.scalar,
       truncations,
       budget,
     ),
-    body: stringField(
-      comment,
-      "body",
+    body: boundedText(
+      comment.body,
       `comments[${index}].body`,
       PR_LIMITS.itemBody,
       truncations,
@@ -210,11 +231,15 @@ function parseComments(
 
 /** Parse review submissions from a `gh pr view` record. */
 function parseReviews(
-  value: unknown,
+  value: readonly Schema.Json[],
   truncations: TruncationNotice[],
 ): readonly PullRequestReview[] {
-  if (!Array.isArray(value)) return [];
-  const records = value.filter(isRecord);
+  const records = value.flatMap((item) =>
+    Option.match(Schema.decodeUnknownOption(GitHubReview)(item), {
+      onNone: () => [],
+      onSome: (review) => [review],
+    }),
+  );
   const retained = records.slice(0, PR_LIMITS.reviews);
   if (retained.length < records.length) {
     truncations.push({
@@ -232,25 +257,22 @@ function parseReviews(
       truncations,
       budget,
     ),
-    state: stringField(
-      review,
-      "state",
+    state: boundedText(
+      review.state,
       `reviews[${index}].state`,
       PR_LIMITS.scalar,
       truncations,
       budget,
     ),
-    submittedAt: stringField(
-      review,
-      "submittedAt",
+    submittedAt: boundedText(
+      review.submittedAt,
       `reviews[${index}].submittedAt`,
       PR_LIMITS.scalar,
       truncations,
       budget,
     ),
-    body: stringField(
-      review,
-      "body",
+    body: boundedText(
+      review.body,
       `reviews[${index}].body`,
       PR_LIMITS.itemBody,
       truncations,
@@ -261,11 +283,15 @@ function parseReviews(
 
 /** Parse label names from a `gh pr view` record. */
 function parseLabels(
-  value: unknown,
+  value: readonly Schema.Json[],
   truncations: TruncationNotice[],
 ): readonly string[] {
-  if (!Array.isArray(value)) return [];
-  const records = value.filter(isRecord);
+  const records = value.flatMap((item) =>
+    Option.match(Schema.decodeUnknownOption(GitHubLabel)(item), {
+      onNone: () => [],
+      onSome: (label) => [label],
+    }),
+  );
   const retained = records.slice(0, PR_LIMITS.labels);
   if (retained.length < records.length) {
     truncations.push({
@@ -278,9 +304,8 @@ function parseLabels(
   const budget = { remaining: PR_LIMITS.collectionText };
   return retained
     .map((label, index) =>
-      stringField(
-        label,
-        "name",
+      boundedText(
+        label.name,
         `labels[${index}]`,
         PR_LIMITS.scalar,
         truncations,
@@ -349,14 +374,26 @@ export function collectPullRequest(
       };
     }
 
-    if (!isRecord(viewResult.value)) {
+    if (
+      Option.isNone(Schema.decodeUnknownOption(GitHubObject)(viewResult.value))
+    ) {
       return {
         data: null,
         warnings: ["Unable to read PR details: unexpected response."],
       };
     }
+    const decoded = Schema.decodeUnknownOption(GitHubPullRequest)(
+      viewResult.value,
+    );
+    if (Option.isNone(decoded)) {
+      return {
+        data: null,
+        warnings: ["Unable to read PR details: required fields are missing."],
+      };
+    }
     const truncations: TruncationNotice[] = [];
-    const summary = parseSummary(viewResult.value, truncations);
+    const record = decoded.value;
+    const summary = parseSummary(record, truncations);
     if (!summary) {
       return {
         data: null,
@@ -365,7 +402,6 @@ export function collectPullRequest(
     }
 
     const warnings: string[] = [];
-    const record = viewResult.value;
 
     let checks: string | undefined;
     if (options.checks) {
@@ -400,31 +436,31 @@ export function collectPullRequest(
       }
     }
 
-    const data: PullRequestData = {
+    let data: PullRequestData = {
       summary,
       truncations,
-      ...(options.description
-        ? {
-            description: stringField(
-              record,
-              "body",
-              "description",
-              PR_LIMITS.body,
-              truncations,
-            ),
-          }
-        : {}),
-      ...(options.labels
-        ? { labels: parseLabels(record.labels, truncations) }
-        : {}),
-      ...(options.comments
-        ? { comments: parseComments(record.comments, truncations) }
-        : {}),
-      ...(options.reviews
-        ? { reviews: parseReviews(record.reviews, truncations) }
-        : {}),
-      ...(checks !== undefined ? { checks } : {}),
     };
+    if (options.description) {
+      data = {
+        ...data,
+        description: boundedText(
+          record.body,
+          "description",
+          PR_LIMITS.body,
+          truncations,
+        ),
+      };
+    }
+    if (options.labels) {
+      data = { ...data, labels: parseLabels(record.labels, truncations) };
+    }
+    if (options.comments) {
+      data = { ...data, comments: parseComments(record.comments, truncations) };
+    }
+    if (options.reviews) {
+      data = { ...data, reviews: parseReviews(record.reviews, truncations) };
+    }
+    if (checks !== undefined) data = { ...data, checks };
     for (const truncation of truncations) {
       warnings.push(
         `Truncated PR ${truncation.path} from ${truncation.original} to ${truncation.retained} ${truncation.unit}.`,

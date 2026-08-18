@@ -4,6 +4,7 @@ import { McpServer } from "effect/unstable/ai";
 import packageJson from "../../package.json" with { type: "json" };
 import { registerContextResources } from "./resources/context.js";
 import { registerContextTools } from "./tools/context.js";
+import { ToolRegistrar } from "./tools/register.js";
 
 const SERVER_NAME = "context";
 
@@ -14,6 +15,7 @@ const registerAll = Effect.gen(function* () {
 
 /** Fully composed MCP server layer. */
 export const McpServerLayer = Layer.effectDiscard(registerAll).pipe(
+  Layer.provide(ToolRegistrar.layer),
   Layer.provide(
     McpServer.layerStdio({ name: SERVER_NAME, version: packageJson.version }),
   ),

@@ -58,7 +58,7 @@ function isValidDateSyntax(value: string): boolean {
     );
   if (!rfc) return false;
 
-  const month = MONTHS.indexOf(rfc[2].toLowerCase() as (typeof MONTHS)[number]);
+  const month = MONTHS.findIndex((name) => name === rfc[2].toLowerCase());
   const rawYear = Number(rfc[3]);
   const year =
     rfc[3].length === 2

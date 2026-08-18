@@ -1,4 +1,4 @@
-import { Cause, Context, Effect, Schema } from "effect";
+import { Cause, Context, Effect, Layer, Schema } from "effect";
 import { McpSchema, McpServer, Tool } from "effect/unstable/ai";
 import { formatCommandError } from "../../lib/rows.js";
 
@@ -35,52 +35,59 @@ export interface ToolRegistration<
   readonly handle: (params: S["Type"]) => Effect.Effect<string, E>;
 }
 
-/** Registers a raw-text tool on the current MCP server. */
-export interface ToolRegistrar {
-  <S extends Schema.Codec<unknown, unknown, never, never>, E>(
+/** Service for registering raw-text tools on the current MCP server. */
+export interface ToolRegistrarService {
+  readonly register: <
+    S extends Schema.Codec<unknown, unknown, never, never>,
+    E,
+  >(
     options: ToolRegistration<S, E>,
-  ): Effect.Effect<void>;
+  ) => Effect.Effect<void>;
 }
 
-/** Acquire a ToolRegistrar bound to the current MCP server. */
-export const makeToolRegistrar: Effect.Effect<
+/** Effect service bound to the current MCP server. */
+export class ToolRegistrar extends Context.Service<
   ToolRegistrar,
-  never,
-  McpServer.McpServer
-> = Effect.gen(function* () {
-  const server = yield* McpServer.McpServer;
-  const register: ToolRegistrar = (options) => {
-    const decode = Schema.decodeEffect(options.parameters);
-    return server.addTool({
-      tool: new McpSchema.Tool({
-        name: options.name,
-        description: options.description,
-        inputSchema: Tool.getJsonSchemaFromSchema(options.parameters),
-        annotations: options.annotations,
-      }),
-      annotations: Context.empty(),
-      handle: (payload) =>
-        decode(payload).pipe(
-          Effect.flatMap(options.handle),
-          Effect.matchCause({
-            onFailure: (cause) =>
-              new McpSchema.CallToolResult({
-                isError: true,
-                content: [
-                  {
-                    type: "text",
-                    text: formatCommandError(Cause.squash(cause)),
-                  },
-                ],
-              }),
-            onSuccess: (text) =>
-              new McpSchema.CallToolResult({
-                isError: false,
-                content: [{ type: "text", text }],
-              }),
+  ToolRegistrarService
+>()("ToolRegistrar") {
+  static readonly layer = Layer.effect(
+    ToolRegistrar,
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const register: ToolRegistrarService["register"] = (options) => {
+        const decode = Schema.decodeEffect(options.parameters);
+        return server.addTool({
+          tool: new McpSchema.Tool({
+            name: options.name,
+            description: options.description,
+            inputSchema: Tool.getJsonSchemaFromSchema(options.parameters),
+            annotations: options.annotations,
           }),
-        ),
-    });
-  };
-  return register;
-});
+          annotations: Context.empty(),
+          handle: (payload) =>
+            decode(payload).pipe(
+              Effect.flatMap(options.handle),
+              Effect.matchCause({
+                onFailure: (cause) =>
+                  new McpSchema.CallToolResult({
+                    isError: true,
+                    content: [
+                      {
+                        type: "text",
+                        text: formatCommandError(Cause.squash(cause)),
+                      },
+                    ],
+                  }),
+                onSuccess: (text) =>
+                  new McpSchema.CallToolResult({
+                    isError: false,
+                    content: [{ type: "text", text }],
+                  }),
+              }),
+            ),
+        });
+      };
+      return { register };
+    }),
+  );
+}
