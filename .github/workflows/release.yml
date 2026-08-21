@@ -115,7 +115,7 @@ jobs:
   publish-arch:
     name: Publish Arch package (context-bin)
     needs: prepare-aur
-    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@ac05fe96c617e783e962909de21d4555a3896409 # master
+    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@5e4da65d1ed385c89581f8827599415bc0142f9e # master
     with:
       package-name: context-bin
       package-files-artifact-name: aur-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
