@@ -11,22 +11,22 @@ on:
 
 jobs:
   actionlint:
-    uses: timmo001/workflows/.github/workflows/lint-actionlint.yml@e953abab0d2a7992524b94194d27231c75b2e130 # master
+    uses: timmo001/workflows/.github/workflows/lint-actionlint.yml@d220b93d3fb3dd498b56bd562bba64b0a00073b8 # master
 
   markdownlint:
-    uses: timmo001/workflows/.github/workflows/lint-markdownlint.yml@e953abab0d2a7992524b94194d27231c75b2e130 # master
+    uses: timmo001/workflows/.github/workflows/lint-markdownlint.yml@d220b93d3fb3dd498b56bd562bba64b0a00073b8 # master
 
   yamllint:
-    uses: timmo001/workflows/.github/workflows/lint-yamllint.yml@e953abab0d2a7992524b94194d27231c75b2e130 # master
+    uses: timmo001/workflows/.github/workflows/lint-yamllint.yml@d220b93d3fb3dd498b56bd562bba64b0a00073b8 # master
 
   jsonlint:
-    uses: timmo001/workflows/.github/workflows/lint-jsonlint.yml@e953abab0d2a7992524b94194d27231c75b2e130 # master
+    uses: timmo001/workflows/.github/workflows/lint-jsonlint.yml@d220b93d3fb3dd498b56bd562bba64b0a00073b8 # master
 
   markdown-links:
-    uses: timmo001/workflows/.github/workflows/lint-markdown-links.yml@e953abab0d2a7992524b94194d27231c75b2e130 # master
+    uses: timmo001/workflows/.github/workflows/lint-markdown-links.yml@d220b93d3fb3dd498b56bd562bba64b0a00073b8 # master
 
   shellcheck:
-    uses: timmo001/workflows/.github/workflows/lint-shellcheck.yml@e953abab0d2a7992524b94194d27231c75b2e130 # master
+    uses: timmo001/workflows/.github/workflows/lint-shellcheck.yml@d220b93d3fb3dd498b56bd562bba64b0a00073b8 # master
     with:
       scandir: ./.scripts
       severity: warning
