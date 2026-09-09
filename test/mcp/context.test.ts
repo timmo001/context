@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { NodeServices } from "@effect/platform-node";
+import { layer as ghLayer } from "@timmo001/effect-gh";
 import { Effect, Layer } from "effect";
 import { McpServer } from "effect/unstable/ai";
 import { GitHub } from "../../src/git/services/GitHub.js";
@@ -18,7 +20,10 @@ import { CommandExecutor } from "../../src/services/CommandExecutor.js";
 const McpTestLayer = Layer.mergeAll(
   ToolRegistrar.layer.pipe(Layer.provideMerge(McpServer.McpServer.layer)),
   CommandExecutor.layer,
-  GitHub.layer.pipe(Layer.provide(CommandExecutor.layer)),
+  GitHub.layer.pipe(
+    Layer.provide(ghLayer()),
+    Layer.provide(NodeServices.layer),
+  ),
 );
 
 describe("MCP context contracts", () => {

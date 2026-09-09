@@ -1,6 +1,6 @@
 import { Effect, Layer, Logger } from "effect";
 import { NodeStdio } from "@effect/platform-node";
-import { McpServer } from "effect/unstable/ai";
+import { McpProtocol, McpServer } from "effect/unstable/ai";
 import packageJson from "../../package.json" with { type: "json" };
 import { registerContextResources } from "./resources/context.js";
 import { registerContextTools } from "./tools/context.js";
@@ -17,7 +17,16 @@ const registerAll = Effect.gen(function* () {
 export const McpServerLayer = Layer.effectDiscard(registerAll).pipe(
   Layer.provide(ToolRegistrar.layer),
   Layer.provide(
-    McpServer.layerStdio({ name: SERVER_NAME, version: packageJson.version }),
+    McpServer.layerStdio({
+      name: SERVER_NAME,
+      version: packageJson.version,
+      protocols: [
+        McpProtocol.v2025_11_25,
+        McpProtocol.v2025_06_18,
+        McpProtocol.v2025_03_26,
+        McpProtocol.v2024_11_05,
+      ],
+    }),
   ),
   Layer.provide(NodeStdio.layer),
   Layer.provide(Layer.succeed(Logger.LogToStderr)(true)),

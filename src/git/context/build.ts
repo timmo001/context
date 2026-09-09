@@ -62,7 +62,7 @@ const MAX_RECENT_COMMIT_LIMIT = 20;
 /** NUL-delimited token that identifies a commit header in log output. */
 const COMMIT_MARKER = "context-commit";
 
-class BranchContextError extends Schema.TaggedErrorClass<BranchContextError>()(
+class BranchContextError extends Schema.TaggedError<BranchContextError>()(
   "BranchContextError",
   {
     message: Schema.String,

@@ -9,10 +9,9 @@ import {
 export { parseSince } from "./since.js";
 
 /** A command-line usage error suitable for concise CLI reporting. */
-export class UsageError extends Schema.TaggedErrorClass<UsageError>()(
-  "UsageError",
-  { message: Schema.String },
-) {}
+export class UsageError extends Schema.TaggedError<UsageError>()("UsageError", {
+  message: Schema.String,
+}) {}
 
 /** Strictly parsed command-line arguments, with canonical long option names. */
 export interface ParsedCliArgs {

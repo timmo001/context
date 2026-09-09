@@ -6,11 +6,7 @@ import {
   PR_LIMITS,
 } from "../../src/git/context/model.js";
 import { GitHub, type GitHubService } from "../../src/git/services/GitHub.js";
-import {
-  CommandError,
-  CommandExecutor,
-  type CommandExecutorService,
-} from "../../src/services/CommandExecutor.js";
+import { failure, makeGitHub, success } from "./helpers/gh.js";
 
 const summaryResponse = {
   number: 42,
@@ -32,32 +28,6 @@ function collect(github: GitHubService, options = GIT_CONTEXT_DEFAULTS) {
   return Effect.runPromise(
     collectPullRequest(options).pipe(Effect.provideService(GitHub, github)),
   );
-}
-
-async function failingGitHub(error: CommandError): Promise<GitHubService> {
-  const executor: CommandExecutorService = {
-    run: () => Effect.fail(error),
-    exitCode: () => Effect.die("Unexpected exit-code command"),
-  };
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      return yield* GitHub;
-    }).pipe(
-      Effect.provide(GitHub.layer),
-      Effect.provideService(CommandExecutor, executor),
-    ),
-  );
-}
-
-function commandError(stderr: string, overrides: Partial<CommandError> = {}) {
-  return new CommandError({
-    command: "gh pr view",
-    exitCode: 1,
-    reason: "exit",
-    stdout: "",
-    stderr,
-    ...overrides,
-  });
 }
 
 describe("collectPullRequest", () => {
@@ -100,15 +70,15 @@ describe("collectPullRequest", () => {
   });
 
   test("silently handles branches without a pull request", async () => {
-    const github = await failingGitHub(
-      commandError("No pull requests found for branch FEATURE"),
+    const github = await makeGitHub(() =>
+      failure("No pull requests found for branch FEATURE"),
     );
 
     expect(await collect(github)).toEqual({ data: null, warnings: [] });
   });
 
   test("reports unexpected GitHub failures", async () => {
-    const github = await failingGitHub(commandError("authentication failed"));
+    const github = await makeGitHub(() => failure("authentication failed"));
 
     expect(await collect(github)).toEqual({
       data: null,
@@ -171,36 +141,31 @@ describe("collectPullRequest", () => {
     expect(result.data?.labels).toEqual(["bug"]);
   });
 
-  test("retains useful output from non-zero check results", async () => {
-    let calls = 0;
-    const executor: CommandExecutorService = {
-      run: () => {
-        calls += 1;
-        return calls === 1
-          ? Effect.succeed(JSON.stringify(summaryResponse))
-          : Effect.fail(
-              commandError("checks failed", { stdout: "build\tfail\n" }),
-            );
-      },
-      exitCode: () => Effect.die("Unexpected exit-code command"),
-    };
-    const github = await Effect.runPromise(
-      Effect.gen(function* () {
-        return yield* GitHub;
-      }).pipe(
-        Effect.provide(GitHub.layer),
-        Effect.provideService(CommandExecutor, executor),
-      ),
-    );
+  test.each([
+    { exitCode: 1, status: "fail" },
+    { exitCode: 8, status: "pending" },
+  ])(
+    "retains useful check output on exit $exitCode",
+    async ({ exitCode, status }) => {
+      const commands: string[][] = [];
+      const github = await makeGitHub((args) => {
+        commands.push([...args]);
+        return args[1] === "view"
+          ? success(JSON.stringify(summaryResponse))
+          : failure("check status", { stdout: `build\t${status}\n`, exitCode });
+      });
 
-    const result = await collect(github, {
-      ...GIT_CONTEXT_DEFAULTS,
-      checks: true,
-    });
+      const result = await collect(github, {
+        ...GIT_CONTEXT_DEFAULTS,
+        checks: true,
+      });
 
-    expect(result.data?.checks).toBe("build\tfail");
-    expect(result.warnings).toEqual([]);
-  });
+      expect(result.data?.checks).toBe(`build\t${status}`);
+      expect(result.warnings).toEqual([]);
+      expect(commands).toHaveLength(2);
+      expect(commands[1]).toEqual(["pr", "checks", "42"]);
+    },
+  );
 
   test("bounds every optional text section and aggregate list", async () => {
     const comments = Array.from(

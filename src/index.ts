@@ -1,4 +1,5 @@
-import { NodeRuntime } from "@effect/platform-node";
+import { NodeRuntime, NodeServices } from "@effect/platform-node";
+import { layer as ghLayer } from "@timmo001/effect-gh";
 import { Cause, Effect, Exit, Layer, Runtime } from "effect";
 import {
   hasOption,
@@ -116,7 +117,13 @@ function reportCliCause(cause: Cause.Cause<unknown>) {
   });
 }
 
-const CliLayers = GitHub.layer.pipe(Layer.provideMerge(CommandExecutor.layer));
+const CliLayers = Layer.mergeAll(
+  CommandExecutor.layer,
+  GitHub.layer.pipe(
+    Layer.provide(ghLayer()),
+    Layer.provide(NodeServices.layer),
+  ),
+);
 
 const cliTeardown: Runtime.Teardown = (exit, onExit) =>
   Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)
@@ -130,7 +137,11 @@ const program = Effect.try({
       ? error
       : new UsageError({ message: formatCommandError(error) }),
 }).pipe(
-  Effect.flatMap(runCommand),
+  Effect.flatMap(
+    Effect.fn("Cli.runCommand")(function* (args: ParsedCliArgs) {
+      return yield* runCommand(args);
+    }),
+  ),
   Effect.provide(CliLayers),
   Effect.catchCause(reportCliCause),
 );

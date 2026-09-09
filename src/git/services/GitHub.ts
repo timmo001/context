@@ -1,9 +1,19 @@
-import { Clock, Context, Duration, Effect, Layer, Schema } from "effect";
+import { Gh } from "@timmo001/effect-gh";
 import {
-  CommandExecutor,
-  type CommandError,
-} from "../../services/CommandExecutor.js";
-import { ENV, envNonNegativeInt } from "../../lib/env.js";
+  Clock,
+  Context,
+  Duration,
+  Effect,
+  Layer,
+  Schema,
+  Stream,
+} from "effect";
+import {
+  DEFAULT_COMMAND_MAX_OUTPUT_BYTES,
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  ENV,
+  envNonNegativeInt,
+} from "../../lib/env.js";
 
 const DEFAULT_RETRIES = envNonNegativeInt(ENV.CONTEXT_GITHUB_RETRIES, 2);
 const RATE_LIMIT_TTL_MS =
@@ -18,18 +28,15 @@ const RATE_LIMIT_MAX_WAIT_SECONDS = envNonNegativeInt(
 );
 
 /** Domain error for GitHub CLI/API operations. */
-class GitHubError extends Schema.TaggedErrorClass<GitHubError>()(
-  "GitHubError",
-  {
-    command: Schema.String,
-    exitCode: Schema.Number,
-    reason: Schema.Literals(["spawn", "exit", "timeout", "output_limit"]),
-    stdout: Schema.String,
-    stderr: Schema.String,
-    retryable: Schema.Boolean,
-    rateLimited: Schema.Boolean,
-  },
-) {}
+class GitHubError extends Schema.TaggedError<GitHubError>()("GitHubError", {
+  command: Schema.String,
+  exitCode: Schema.Number,
+  reason: Schema.Literals(["spawn", "exit", "timeout", "output_limit"]),
+  stdout: Schema.String,
+  stderr: Schema.String,
+  retryable: Schema.Boolean,
+  rateLimited: Schema.Boolean,
+}) {}
 
 /** Options for GitHub CLI commands. */
 interface GitHubCommandOptions {
@@ -68,13 +75,69 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
   static readonly layer = Layer.effect(
     GitHub,
     Effect.gen(function* () {
-      const executor = yield* CommandExecutor;
+      const gh = yield* Gh;
       let rateLimitCache: RateLimitSnapshot | null = null;
+
+      const execute = Effect.fn("GitHub.execute")(function* (
+        args: readonly string[],
+      ) {
+        let stdout = "";
+        let stderr = "";
+        let bytes = 0;
+        // Keep streamed diagnostics: SDK command errors omit stdout and cap stderr.
+        yield* gh.stream(args, { timeout: DEFAULT_COMMAND_TIMEOUT_MS }).pipe(
+          Stream.mapError((error) =>
+            toGitHubError(args, {
+              exitCode: error._tag === "GhCommandError" ? error.exitCode : -1,
+              reason:
+                error._tag === "GhTimeoutError"
+                  ? "timeout"
+                  : error._tag === "GhPlatformError"
+                    ? "spawn"
+                    : "exit",
+              stdout,
+              stderr:
+                error._tag === "GhPlatformError" ||
+                error._tag === "GhDecodeError"
+                  ? stderr ||
+                    (error.cause instanceof Error
+                      ? error.cause.message
+                      : String(error.cause))
+                  : stderr,
+            }),
+          ),
+          Stream.runForEach((chunk) =>
+            Effect.gen(function* () {
+              const encoded = new TextEncoder().encode(chunk.text);
+              const accepted = Math.min(
+                encoded.byteLength,
+                DEFAULT_COMMAND_MAX_OUTPUT_BYTES - bytes,
+              );
+              const text =
+                accepted === encoded.byteLength
+                  ? chunk.text
+                  : new TextDecoder().decode(encoded.subarray(0, accepted));
+              if (chunk._tag === "Stdout") stdout += text;
+              else stderr += text;
+              bytes += accepted;
+              if (accepted < encoded.byteLength) {
+                return yield* toGitHubError(args, {
+                  exitCode: -1,
+                  reason: "output_limit",
+                  stdout,
+                  stderr,
+                });
+              }
+            }),
+          ),
+        );
+        return stdout;
+      });
 
       const fetchRateLimit = Effect.fn("GitHub.fetchRateLimit")(function* (
         checkedAtMillis: number,
       ) {
-        const raw = yield* executor.run("gh", [
+        const raw = yield* execute([
           "api",
           "rate_limit",
           "--jq",
@@ -133,14 +196,14 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
       });
 
       const runAttempt = (args: readonly string[]) =>
-        executor.run("gh", args).pipe(
+        execute(args).pipe(
           Effect.matchEffect({
             onSuccess: (output) =>
               Effect.succeed({ type: "success" as const, output }),
             onFailure: (error) =>
               Effect.succeed({
                 type: "failure" as const,
-                error: toGitHubError(args, error),
+                error,
               }),
           }),
         );
@@ -220,7 +283,7 @@ function parseInteger(value: string | undefined): number | null {
 
 function toGitHubError(
   args: readonly string[],
-  error: CommandError,
+  error: Pick<GitHubError, "exitCode" | "reason" | "stdout" | "stderr">,
 ): GitHubError {
   const diagnostic = `${error.stderr}\n${error.stdout}`;
   const rateLimited = isRateLimitMessage(diagnostic);
