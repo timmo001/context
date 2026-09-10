@@ -18,7 +18,7 @@
   "dependencies": {
     "@effect/platform-node": "4.0.0-rc.112",
     "@timmo001/effect-gh": "github:timmo001/effect-gh#967d4355b5b4a9221dfc0b78fa6dc0522e6dcd56",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.113"
   },
   "devDependencies": {
     "@effect/language-service": "^0.87.0",
