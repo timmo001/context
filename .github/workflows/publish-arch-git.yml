@@ -26,7 +26,7 @@ concurrency:
 jobs:
   publish:
     name: Publish Arch package (context-git)
-    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@2cb1c90bdea4833e142eb444efddb4aabc3cbd2f # master
+    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@2dd739bf3179a3de38c976fad90664892d7b08f7 # master
     with:
       package-name: context-git
     secrets:
