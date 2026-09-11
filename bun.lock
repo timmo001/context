@@ -5,7 +5,7 @@
     "": {
       "name": "context",
       "dependencies": {
-        "@effect/platform-node": "4.0.0-rc.114",
+        "@effect/platform-node": "4.0.0-rc.115",
         "@timmo001/effect-gh": "github:timmo001/effect-gh#232e1d328758cbcce4de615dbb3bbdc9be146871",
         "effect": "4.0.0-rc.113",
       },
@@ -26,9 +26,9 @@
   "packages": {
     "@effect/language-service": ["@effect/language-service@0.87.0", "", { "bin": { "effect-language-service": "cli.js" } }, "sha512-GwZtEwBaOMyKea6YAtN0T0OGBtzJ8/y0KUIfyg29u3hnMRiXKlR2BRDqJmi+SbgaODJNNB3YOd6KuRB/vsxnWw=="],
 
-    "@effect/platform-node": ["@effect/platform-node@4.0.0-rc.114", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.114", "undici": "^8.10.2" }, "peerDependencies": { "effect": "^4.0.0-rc.114", "redis": ">=5.0.0 <7.0.0" } }, "sha512-eqPvK8XswUw+FVe7CVqiyYUz4NHPz/1DiNsXi8GwIrsMOLT2wLteaAUID4grjDX7XWK1ONUVy4gS9IwBvp+EjA=="],
+    "@effect/platform-node": ["@effect/platform-node@4.0.0-rc.115", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.115", "undici": "^8.10.2" }, "peerDependencies": { "effect": "^4.0.0-rc.115", "redis": ">=5.0.0 <7.0.0" } }, "sha512-mW03Wjq2FiTL5oi9yOkaKpCyUNBaduKgTk7qMHNELvC21Jq2qOAfdsfH+p+s2zmpB9w2RSa+ApODv4WjO9wQfw=="],
 
-    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-rc.114", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.3" }, "peerDependencies": { "effect": "^4.0.0-rc.114" } }, "sha512-YVoL71bJpa8HmAZl63nvVgOI4UBg61Z+6U0qnNN2ZlUktxG7eu26Y/puRxEtMxivxEUHR5vKJsuqQ3PRK4fLQA=="],
+    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-rc.115", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.3" }, "peerDependencies": { "effect": "^4.0.0-rc.115" } }, "sha512-rcBwhDIfb82akJoTv7Vwh8K5x9vC/XfuePS7JjOr+z+dORXzsmKqI1BUQF27ARCN9fTAbDh7I6YvBlWhLjnqNg=="],
 
     "@oxlint/binding-android-arm-eabi": ["@oxlint/binding-android-arm-eabi@1.82.0", "", { "os": "android", "cpu": "arm" }, "sha512-a3LB+C5Dsj5b/qtmG/mv5WrzuiXEpg1KF5nXWcEvaoN5TYAqkIvxPOwTPp3Jy/FoGpRo8zsTFhMElMXfeoOEzA=="],
 
