@@ -1,4 +1,4 @@
-const MAX_DATE_TIMESTAMP = 8_640_000_000_000_000;
+import { DateTime, Duration, Option, Schema } from "effect";
 
 function invalidSince(value: string): Error {
   return new Error(
@@ -69,51 +69,38 @@ function isValidDateSyntax(value: string): boolean {
   return month !== -1 && isValidCalendarDate(year, month + 1, Number(rfc[1]));
 }
 
-function relativeUnitMillis(unit: string | undefined): number | undefined {
-  switch (unit) {
-    case "s":
-    case "sec":
-    case "secs":
-    case "second":
-    case "seconds":
-      return 1_000;
-    case "m":
-    case "min":
-    case "mins":
-    case "minute":
-    case "minutes":
-      return 60_000;
-    case "h":
-    case "hr":
-    case "hrs":
-    case "hour":
-    case "hours":
-      return 3_600_000;
-    case "d":
-    case "day":
-    case "days":
-      return 86_400_000;
-    case "w":
-    case "week":
-    case "weeks":
-      return 604_800_000;
-    default:
-      return undefined;
-  }
-}
+const relativeUnits = new Map<string, Duration.Unit>([
+  ["s", "seconds"],
+  ["sec", "seconds"],
+  ["secs", "seconds"],
+  ["m", "minutes"],
+  ["min", "minutes"],
+  ["mins", "minutes"],
+  ["h", "hours"],
+  ["hr", "hours"],
+  ["hrs", "hours"],
+  ["d", "days"],
+  ["w", "weeks"],
+  ["ms", "millis"],
+  ["us", "micros"],
+  ["ns", "nanos"],
+]);
+
+const decodeDuration = Schema.decodeUnknownOption(Schema.DurationFromString);
 
 function parseRelativeSinceTimestamp(value: string): number | undefined {
-  const match = value
-    .toLowerCase()
-    .match(
-      /^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)(?:\s+ago)?$/,
-    );
-  if (!match) return undefined;
-
-  const amount = Number(match[1]);
-  const millis = relativeUnitMillis(match[2]);
-  return Number.isFinite(amount) && millis !== undefined
-    ? Date.now() - amount * millis
+  const duration = decodeDuration(
+    value
+      .toLowerCase()
+      .replace(
+        /\s*([a-z]+)(?:\s+ago)?$/,
+        (_, unit: string) => ` ${relativeUnits.get(unit) ?? unit}`,
+      ),
+  );
+  return Option.isSome(duration)
+    ? DateTime.toEpochMillis(
+        DateTime.subtractDuration(DateTime.nowUnsafe(), duration.value),
+      )
     : undefined;
 }
 
@@ -132,12 +119,8 @@ export function parseSince(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length === 0) throw invalidSince(value);
 
-  const timestamp = parseSinceTimestamp(trimmed);
-  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > MAX_DATE_TIMESTAMP) {
-    throw invalidSince(value);
-  }
-
-  const date = new Date(timestamp);
-  if (!Number.isFinite(date.getTime())) throw invalidSince(value);
-  return date.toISOString();
+  const date = DateTime.make(parseSinceTimestamp(trimmed));
+  return DateTime.formatIso(
+    Option.getOrThrowWith(date, () => invalidSince(value)),
+  );
 }

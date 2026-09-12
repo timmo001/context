@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   optionValue,
   parseCliArgs,
@@ -80,6 +80,42 @@ describe("parseCliArgs", () => {
 
 describe("parseSince", () => {
   test.each([
+    [
+      ["10s", "10 sec", "10 secs", "10 second", "10 seconds ago"],
+      "2024-03-15T11:59:50.000Z",
+    ],
+    [
+      ["10m", "10 min", "10 mins", "10 minute", "10 minutes ago"],
+      "2024-03-15T11:50:00.000Z",
+    ],
+    [
+      ["2h", "2 hr", "2 hrs", "2 hour", "2 hours ago"],
+      "2024-03-15T10:00:00.000Z",
+    ],
+    [["2d", "2 day", "2 days ago"], "2024-03-13T12:00:00.000Z"],
+    [["2w", "2 week", "2 weeks ago"], "2024-03-01T12:00:00.000Z"],
+    [["0m", " 0 MINUTES AGO "], "2024-03-15T12:00:00.000Z"],
+    [["1.5h", "1.5 hours ago"], "2024-03-15T10:30:00.000Z"],
+    [["0.5s", "0.5 seconds"], "2024-03-15T11:59:59.500Z"],
+    [["500ms", "500 milli", "500 millis ago"], "2024-03-15T11:59:59.500Z"],
+    [["500000us", "500000 micro", "500000 micros"], "2024-03-15T11:59:59.500Z"],
+    [
+      ["500000000ns", "500000000 nano", "500000000 nanos"],
+      "2024-03-15T11:59:59.500Z",
+    ],
+    [["-10m", "-10 minutes"], "2024-03-15T12:10:00.000Z"],
+  ])("parses relative aliases %j", (values, expected) => {
+    const clock = spyOn(Date, "now").mockReturnValue(1_710_504_000_000);
+    try {
+      for (const value of values) {
+        expect(parseSince(value)).toBe(expected);
+      }
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test.each([
     ["0", "1970-01-01T00:00:00.000Z"],
     ["2024-02-29", "2024-02-29T00:00:00.000Z"],
     ["Thu, 01 Jan 1970 00:00:00 GMT", "1970-01-01T00:00:00.000Z"],
@@ -94,6 +130,13 @@ describe("parseSince", () => {
     "2023-02-29",
     "Thu, 30 Feb 2023 00:00:00 GMT",
     "999999999999999999999999",
+    "999999999999999999999999w",
+    "1.5.5h",
+    "1h 30m",
+    "10 months",
+    "10m trailing",
+    "Infinity",
+    "-Infinity",
   ])("rejects %s cleanly", (value) => {
     expect(() => parseSince(value)).toThrow("Unknown --since value");
   });
