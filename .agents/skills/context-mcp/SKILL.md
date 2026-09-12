@@ -17,4 +17,16 @@ Use the Context MCP server when the workflow selects MCP tooling. Clients may pr
 3. Use `context://git`, `context://stack`, or `context://command/{name}` when the client supports resources and the default snapshot or help is sufficient.
 4. Report warnings, truncation, and missing data. Do not treat a partial response as a complete repository snapshot.
 
+## Recent Commit Windows
+
+Pass `since` as a string to `git_context`. It accepts ISO/RFC dates, epoch timestamps, and single Effect durations, including fractions and optional `ago`:
+
+```json
+{ "since": "1.5h", "pullRequest": false }
+```
+
+Other examples include `10m`, `2 days ago`, `500ms`, `500000 micros`, `500000000 nanos` and `2026-09-01T10:00:00Z`. Units include seconds, minutes, hours, days, weeks, millis, micros and nanos, with shorthand aliases `s`, `m`, `h`, `d`, `w`, `ms`, `us` and `ns`. Use one duration, such as `1.5h`, rather than `1h 30m`.
+
+When a branch commit range is available, it takes precedence over `since`.
+
 These tools are read-only. They do not authorise repository changes or replace an injection required by the calling workflow. If the MCP server is unavailable, report that and use `context-cli` only when CLI access is allowed.

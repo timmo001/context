@@ -22,6 +22,24 @@ Use `context` for deterministic repository snapshots. Run it from the target rep
 3. Use `--json` when a consumer needs structured output. Check `context git --help` for the current options instead of guessing flags.
 4. Report warnings, truncation, or missing GitHub data as limitations. A partial snapshot is not evidence that the missing information does not exist.
 
+## Recent Commit Windows
+
+`--since` accepts ISO/RFC dates, epoch timestamps, and single Effect durations. Durations support fractions, optional `ago`, and shorthand units:
+
+```bash
+context git --since 10m
+context git --since 1.5h
+context git --since "2 days ago"
+context git --since 500ms
+context git --since "500000 micros"
+context git --since "500000000 nanos"
+context git --since "2026-09-01T10:00:00Z"
+```
+
+Units include seconds, minutes, hours, days, weeks, millis, micros and nanos. Shorthand aliases include `s`, `m`, `h`, `d`, `w`, `ms`, `us` and `ns`. Quote values containing spaces. Use a single duration such as `1.5h`, rather than compound values such as `1h 30m`.
+
+When a branch commit range is available, it takes precedence over `--since`.
+
 ## Tech Stack
 
 Use `context stack [directory]` for detected languages, ecosystems, tooling, and frameworks. Add `--json` for structured output or `--plain` for text without ANSI styling. The directory defaults to the working directory.
