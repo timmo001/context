@@ -13,6 +13,18 @@
       "description": "Group GitHub Actions.",
       "groupName": "github actions",
       "matchManagers": ["github-actions"]
+    },
+    {
+      "description": "Keep the TypeScript SDK compatible with editor tooling and the Effect language service.",
+      "matchManagers": ["npm"],
+      "matchDepNames": ["typescript"],
+      "allowedVersions": "<7"
+    },
+    {
+      "description": "Keep the native compiler on a version supported by the Effect TypeScript patcher.",
+      "matchManagers": ["npm"],
+      "matchDepNames": ["@typescript/native"],
+      "allowedVersions": "7.0.2"
     }
   ]
 }
