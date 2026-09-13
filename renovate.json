@@ -16,14 +16,14 @@
     },
     {
       "description": "Keep the TypeScript SDK compatible with editor tooling and the Effect language service.",
-      "matchManagers": ["npm"],
       "matchDepNames": ["typescript"],
+      "matchFileNames": ["package.json"],
       "allowedVersions": "<7"
     },
     {
       "description": "Keep the native compiler on a version supported by the Effect TypeScript patcher.",
-      "matchManagers": ["npm"],
       "matchDepNames": ["@typescript/native"],
+      "matchFileNames": ["package.json"],
       "allowedVersions": "7.0.2"
     }
   ]
