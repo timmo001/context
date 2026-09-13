@@ -12,6 +12,7 @@ const truncationSchema = Schema.Struct({
   omitted: Schema.optionalKey(Schema.Number),
   subject: Schema.optionalKey(Schema.String),
 });
+
 const stackPayloadSchema = Schema.fromJsonString(
   Schema.Struct({
     root: Schema.String,
@@ -21,6 +22,7 @@ const stackPayloadSchema = Schema.fromJsonString(
     ),
   }),
 );
+
 const decodeStackPayload = Schema.decodeUnknownSync(stackPayloadSchema);
 
 function stack(overrides: Partial<StackContextData> = {}): StackContextData {
@@ -44,6 +46,7 @@ describe("bounded renderers", () => {
       { length: 15 },
       (_, index) => `p/${index}.json`,
     );
+
     const payload = decodeStackPayload(
       renderStackContextJson(
         stack({
@@ -70,6 +73,7 @@ describe("bounded renderers", () => {
         warnings: Array.from({ length: 50 }, () => "w".repeat(20_000)),
       }),
     );
+
     const parsed = decodeStackPayload(payload);
     expect(new TextEncoder().encode(payload).byteLength).toBeLessThanOrEqual(
       STACK_LIMITS.jsonOutputBytes,

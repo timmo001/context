@@ -56,9 +56,13 @@ function warnInertJsonFlags(
   options: BranchContextOptions,
 ): Effect.Effect<void> {
   const inert: string[] = [];
+
   if (options.diff) inert.push("--diff");
+
   if (options.branchDiff) inert.push("--branch-diff");
+
   if (inert.length === 0) return Effect.void;
+
   return Effect.sync(() =>
     console.error(
       `[context git] ${inert.join(" and ")} ${inert.length === 1 ? "is" : "are"} text-only and ignored with --json.`,

@@ -64,6 +64,7 @@ function git(repository: string, args: readonly string[]) {
     stdout: "pipe",
     stderr: "pipe",
   });
+
   if (result.exitCode !== 0) {
     throw new Error(new TextDecoder().decode(result.stderr));
   }
@@ -71,6 +72,7 @@ function git(repository: string, args: readonly string[]) {
 
 async function withRepository(run: (repository: string) => Promise<void>) {
   const repository = await mkdtemp(join(tmpdir(), "context-git-"));
+
   try {
     git(repository, ["init", "-q", "--initial-branch=trunk"]);
     git(repository, ["config", "user.email", "context@example.invalid"]);
@@ -97,6 +99,7 @@ function configureResolvedOrigin(repository: string) {
 describe("buildBranchContext", () => {
   test("returns minimal context outside a git worktree", async () => {
     const directory = await mkdtemp(join(tmpdir(), "context-not-git-"));
+
     try {
       expect(
         await collect(directory, repoExecutor(directory), unusedGitHub),
@@ -114,13 +117,16 @@ describe("buildBranchContext", () => {
     await withRepository(async (repository) => {
       configureResolvedOrigin(repository);
       let githubCalled = false;
+
       const github: GitHubService = {
         run: () => {
           githubCalled = true;
+
           return Effect.succeed("");
         },
         json: () => {
           githubCalled = true;
+
           return Effect.succeed({});
         },
       };
@@ -271,6 +277,7 @@ describe("buildBranchContext", () => {
   test("fails clearly when ahead and behind counts are malformed", async () => {
     await withRepository(async (repository) => {
       configureResolvedOrigin(repository);
+
       const executor = repoExecutor(repository, (cmd, args, opts) => {
         if (
           cmd === "git" &&
@@ -279,6 +286,7 @@ describe("buildBranchContext", () => {
         ) {
           return Effect.succeed("bad data\n");
         }
+
         return liveExecutor.run(cmd, args, opts);
       });
 
@@ -293,13 +301,16 @@ describe("buildBranchContext", () => {
       configureResolvedOrigin(repository);
       git(repository, ["checkout", "-q", "--detach"]);
       let githubCalled = false;
+
       const github: GitHubService = {
         run: () => {
           githubCalled = true;
+
           return Effect.succeed("");
         },
         json: () => {
           githubCalled = true;
+
           return Effect.succeed({});
         },
       };
@@ -329,13 +340,16 @@ describe("buildBranchContext", () => {
         "https://example.invalid/repo.git",
       ]);
       let githubCalled = false;
+
       const github: GitHubService = {
         run: () => {
           githubCalled = true;
+
           return Effect.succeed("");
         },
         json: () => {
           githubCalled = true;
+
           return Effect.succeed({});
         },
       };
@@ -382,9 +396,11 @@ describe("buildBranchContext", () => {
 
       const stagedContext = await collect(repository);
       expect(stagedContext.status?.staged).toHaveLength(2);
+
       const stagedRename = stagedContext.status?.staged.find(
         (file) => file.path === renamed,
       );
+
       expect(stagedRename).toMatchObject({
         status: "R100",
         originalPath: "old => name.txt",
@@ -413,9 +429,11 @@ describe("buildBranchContext", () => {
       git(repository, ["add", "--all"]);
       git(repository, ["commit", "-qm", "rename literal => path"]);
       const committedContext = await collect(repository);
+
       const committedRename = committedContext.commits?.records[0]?.files.find(
         (file) => file.path === renamed,
       );
+
       expect(committedRename).toMatchObject({
         status: "R100",
         originalPath: "old => name.txt",
@@ -444,6 +462,7 @@ describe("buildBranchContext", () => {
             }),
           );
         }
+
         return liveExecutor.run(cmd, args, opts);
       });
 
@@ -467,6 +486,7 @@ describe("buildBranchContext", () => {
             }),
           );
         }
+
         return liveExecutor.run(cmd, args, opts);
       });
 
@@ -493,6 +513,7 @@ describe("buildBranchContext", () => {
             }),
           );
         }
+
         return liveExecutor.run(cmd, args, opts);
       });
 

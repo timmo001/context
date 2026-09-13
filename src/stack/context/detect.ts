@@ -48,6 +48,7 @@ import {
 } from "./model.js";
 
 const GITHUB_ACTIONS_ECO = "github-actions";
+
 const REQUIREMENTS_FILE = /^requirements.*\.txt$/i;
 
 interface MutableTruncation {
@@ -119,7 +120,9 @@ const PackageJsonManifestSchema: Schema.Codec<
 });
 
 const PackageDependencyBlockSchema = Schema.Record(Schema.String, Schema.Json);
+
 const isPackageDependencyBlock = Schema.is(PackageDependencyBlockSchema);
+
 const isString = Schema.is(Schema.String);
 
 interface ManifestCacheEntry {
@@ -152,6 +155,7 @@ function topKeys(counts: Map<string, number>, limit: number): string[] {
 function addWarning(state: CollectionState, warning: string): void {
   if (state.warningSet.has(warning)) return;
   state.warningSet.add(warning);
+
   if (state.warnings.length < STACK_COLLECTION_LIMITS.warnings) {
     state.warnings.push(warning);
   } else {
@@ -169,15 +173,19 @@ function addTruncation(
       entry.limit === truncation.limit &&
       entry.subject === truncation.subject,
   );
+
   if (existing) {
     if (truncation.observed !== undefined) {
       existing.observed = Math.max(existing.observed ?? 0, truncation.observed);
     }
+
     if (truncation.omitted !== undefined) {
       existing.omitted = (existing.omitted ?? 0) + truncation.omitted;
     }
+
     return;
   }
+
   if (
     state.truncations.length <
     STACK_COLLECTION_LIMITS.truncationReasons - 1
@@ -197,6 +205,7 @@ function finalTruncations(state: CollectionState): StackTruncation[] {
       omitted: state.omittedWarnings,
     });
   }
+
   if (state.omittedTruncations > 0) {
     state.truncations.push({
       reason: "truncationReasons",
@@ -205,6 +214,7 @@ function finalTruncations(state: CollectionState): StackTruncation[] {
       omitted: state.omittedTruncations,
     });
   }
+
   return state.truncations.map((entry) => ({ ...entry }));
 }
 
@@ -214,13 +224,16 @@ function decode(stdout: Uint8Array): string {
 
 function gitFailure(result: Bun.SyncSubprocess): string {
   const stderr = result.stderr ? decode(result.stderr) : "";
+
   return stderr || `git exited ${result.exitCode}`;
 }
 
 function completeNullTerminatedPaths(stdout: Uint8Array): string[] {
   const text = new TextDecoder().decode(stdout);
   const lastTerminator = text.lastIndexOf("\0");
+
   if (lastTerminator < 0) return [];
+
   return text.slice(0, lastTerminator).split("\0").filter(Boolean);
 }
 
@@ -236,12 +249,14 @@ function gitFiles(root: string): GitFileList {
         timeout: DEFAULT_COMMAND_TIMEOUT_MS,
       },
     );
+
     if (inside.exitedDueToTimeout) {
       return {
         ok: false,
         warning: `Git worktree detection timed out after ${DEFAULT_COMMAND_TIMEOUT_MS}ms.`,
       };
     }
+
     if (inside.exitCode !== 0 || decode(inside.stdout) !== "true") {
       return {
         ok: false,
@@ -269,12 +284,14 @@ function gitFiles(root: string): GitFileList {
         timeout: DEFAULT_COMMAND_TIMEOUT_MS,
       },
     );
+
     if (listed.exitedDueToTimeout) {
       return {
         ok: false,
         warning: `Git file listing timed out after ${DEFAULT_COMMAND_TIMEOUT_MS}ms.`,
       };
     }
+
     if (listed.exitedDueToMaxBuffer) {
       return {
         ok: true,
@@ -286,6 +303,7 @@ function gitFiles(root: string): GitFileList {
         ),
       };
     }
+
     if (listed.exitCode !== 0) {
       return {
         ok: false,
@@ -301,6 +319,7 @@ function gitFiles(root: string): GitFileList {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+
     return {
       ok: false,
       warning: `Could not run git for stack context: ${message}.`,
@@ -311,6 +330,7 @@ function gitFiles(root: string): GitFileList {
 function locationOf(relPath: string): string {
   const parts = relPath.split("/");
   parts.pop();
+
   return parts.length === 0 ? "." : parts.slice(0, 2).join("/");
 }
 
@@ -329,6 +349,7 @@ function withinDepth(segments: readonly string[], maxDepth: number): boolean {
 function isReadableRegularFile(root: string, rel: string): boolean {
   try {
     const stat = lstatSync(join(root, rel));
+
     return stat.isFile() && !stat.isSymbolicLink();
   } catch {
     return false;
@@ -340,6 +361,7 @@ function isGithubWorkflow(
   extension: string,
 ): boolean {
   if (extension !== ".yml" && extension !== ".yaml") return false;
+
   return segments.some(
     (segment, index) =>
       segment === ".github" && segments[index + 1] === "workflows",
@@ -348,6 +370,7 @@ function isGithubWorkflow(
 
 function recordManifest(acc: WalkAccumulator, eco: string, rel: string): void {
   const manifests = acc.manifests.get(eco) ?? [];
+
   if (manifests.length < STACK_COLLECTION_LIMITS.manifestsPerEcosystem) {
     manifests.push(rel);
     acc.manifests.set(eco, manifests);
@@ -368,13 +391,17 @@ function recordTooling(
       evidence: [],
       omittedEvidence: 0,
     } satisfies MutableToolingEntry);
+
   for (const kind of rule.kinds) entry.kinds.add(kind);
+
   if (entry.evidence.includes(evidence)) return;
+
   if (entry.evidence.length < STACK_COLLECTION_LIMITS.evidencePerTool) {
     entry.evidence.push(evidence);
   } else {
     entry.omittedEvidence += 1;
   }
+
   acc.tooling.set(rule.name, entry);
 }
 
@@ -382,10 +409,12 @@ function censusFile(acc: WalkAccumulator, name: string, rel: string): void {
   const language =
     ownLookup(FILENAME_LANG, name) ??
     ownLookup(EXT_LANG, extname(name).toLowerCase());
+
   if (!language) return;
   bump(acc.langFiles, language);
   const dirs = acc.langDirs.get(language) ?? new Map<string, number>();
   const location = locationOf(rel);
+
   if (
     dirs.has(location) ||
     dirs.size < STACK_COLLECTION_LIMITS.locationsPerLanguage
@@ -401,20 +430,27 @@ function classifyFile(acc: WalkAccumulator, name: string, rel: string): void {
   const eco =
     ownLookup(MANIFEST_ECO, name) ??
     (REQUIREMENTS_FILE.test(name) ? "python" : undefined);
+
   if (eco) recordManifest(acc, eco, rel);
 
   const manifestTool = ownLookup(MANIFEST_TOOLING, name);
+
   if (manifestTool) recordTooling(acc, manifestTool, `manifest: ${rel}`);
   const lockfileTool = ownLookup(LOCKFILE_TOOLING, name);
+
   if (lockfileTool) recordTooling(acc, lockfileTool, `lockfile: ${rel}`);
+
   const configTool =
     ownLookup(CONFIG_TOOLING, name) ?? ownLookup(CONFIG_TOOLING, rel);
+
   if (configTool) recordTooling(acc, configTool, `config: ${rel}`);
 
   const segments = pathSegments(rel);
+
   if (isGithubWorkflow(segments, extname(name).toLowerCase())) {
     recordManifest(acc, GITHUB_ACTIONS_ECO, rel);
   }
+
   censusFile(acc, name, rel);
 }
 
@@ -433,24 +469,30 @@ function walk(
     tooling: new Map(),
     scannedFiles: 0,
   };
+
   let depthOmitted = 0;
   let observedDepth = 0;
   const candidates: string[] = [];
 
   for (const rel of files) {
     const segments = pathSegments(rel);
+
     if (segments.length === 0 || isIgnoredPath(segments)) continue;
+
     if (!withinDepth(segments, options.maxDepth)) {
       depthOmitted += 1;
       observedDepth = Math.max(observedDepth, segments.length - 1);
       continue;
     }
+
     candidates.push(rel);
   }
 
   let fileCapObserved: number | undefined;
+
   for (const rel of candidates) {
     if (!isReadableRegularFile(root, rel)) continue;
+
     if (acc.scannedFiles >= options.maxFiles) {
       fileCapObserved = acc.scannedFiles + 1;
       break;
@@ -468,6 +510,7 @@ function walk(
       omitted: depthOmitted,
     });
   }
+
   if (fileCapObserved !== undefined) {
     addTruncation(state, {
       reason: "maxFiles",
@@ -479,6 +522,7 @@ function walk(
       `Scan stopped at the ${options.maxFiles}-file cap; results are partial.`,
     );
   }
+
   for (const [eco, omitted] of acc.manifestOverflow) {
     addTruncation(state, {
       reason: "manifestCollection",
@@ -488,6 +532,7 @@ function walk(
       subject: eco,
     });
   }
+
   for (const language of acc.langLocationOverflow.keys()) {
     addTruncation(state, {
       reason: "languageLocations",
@@ -496,6 +541,7 @@ function walk(
       subject: language,
     });
   }
+
   return acc;
 }
 
@@ -503,7 +549,9 @@ function packageJsonData(text: string): PackageJsonData {
   const pkg = Schema.decodeUnknownSync(PackageJsonManifestSchema)(
     JSON.parse(text),
   );
+
   const names = new Set<string>();
+
   for (const block of [
     pkg.dependencies,
     pkg.devDependencies,
@@ -511,8 +559,10 @@ function packageJsonData(text: string): PackageJsonData {
     pkg.optionalDependencies,
   ]) {
     if (!isPackageDependencyBlock(block)) continue;
+
     for (const key of Object.keys(block)) names.add(key);
   }
+
   return {
     dependencyNames: [...names].sort(),
     packageManager: isString(pkg.packageManager) ? pkg.packageManager : null,
@@ -534,7 +584,9 @@ function cacheEntry(
       packageJsonAttempted: false,
       dependenciesAttempted: false,
     } satisfies ManifestCacheEntry);
+
   cache.set(rel, entry);
+
   return entry;
 }
 
@@ -545,18 +597,22 @@ function readManifest(
   state: CollectionState,
 ): string | undefined {
   const entry = cacheEntry(cache, rel);
+
   if (entry.readAttempted) return entry.text;
   entry.readAttempted = true;
 
   let descriptor: number | undefined;
+
   try {
     const noFollow = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
     descriptor = openSync(join(root, rel), constants.O_RDONLY | noFollow);
     const stat = fstatSync(descriptor);
+
     if (!stat.isFile()) throw new TypeError("not a regular file");
 
     const remaining =
       STACK_COLLECTION_LIMITS.manifestTotalBytes - state.manifestBytesRead;
+
     if (remaining <= 0) {
       addTruncation(state, {
         reason: "manifestTotalReadBytes",
@@ -569,12 +625,16 @@ function readManifest(
         state,
         `Skipped ${rel}; the manifest read budget was exhausted.`,
       );
+
       return undefined;
     }
+
     const limit = Math.min(STACK_COLLECTION_LIMITS.manifestBytes, remaining);
+
     if (stat.size > limit) {
       const totalBudgetApplied =
         limit !== STACK_COLLECTION_LIMITS.manifestBytes;
+
       addTruncation(state, {
         reason: totalBudgetApplied
           ? "manifestTotalReadBytes"
@@ -592,11 +652,13 @@ function readManifest(
         state,
         `Skipped ${rel}; it exceeds the ${totalBudgetApplied ? "total manifest read budget" : "manifest read limit"}.`,
       );
+
       return undefined;
     }
 
     const bytes = Buffer.allocUnsafe(Math.min(limit + 1, stat.size + 1));
     const read = readSync(descriptor, bytes, 0, bytes.length, 0);
+
     if (read > limit) {
       addTruncation(state, {
         reason: "manifestReadBytes",
@@ -609,13 +671,17 @@ function readManifest(
         state,
         `Skipped ${rel}; it grew beyond the manifest read limit.`,
       );
+
       return undefined;
     }
+
     state.manifestBytesRead += read;
     entry.text = new TextDecoder().decode(bytes.subarray(0, read));
+
     return entry.text;
   } catch {
     addWarning(state, `Could not read ${rel}.`);
+
     return undefined;
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
@@ -629,15 +695,20 @@ function parsedPackageJson(
   state: CollectionState,
 ): PackageJsonData | undefined {
   const entry = cacheEntry(cache, rel);
+
   if (entry.packageJsonAttempted) return entry.packageJson;
   entry.packageJsonAttempted = true;
   const text = readManifest(root, rel, cache, state);
+
   if (text === undefined) return undefined;
+
   try {
     entry.packageJson = packageJsonData(text);
+
     return entry.packageJson;
   } catch {
     addWarning(state, `Could not parse ${rel}.`);
+
     return undefined;
   }
 }
@@ -650,9 +721,11 @@ function manifestDependencies(
   state: CollectionState,
 ): readonly string[] {
   const entry = cacheEntry(cache, rel);
+
   if (entry.dependenciesAttempted) return entry.dependencies ?? [];
   entry.dependenciesAttempted = true;
   const text = readManifest(root, rel, cache, state);
+
   if (text === undefined) return [];
 
   try {
@@ -662,6 +735,7 @@ function manifestDependencies(
       entry.dependencies = parseCargoDependencies(text);
     } else if (eco === "python") {
       const name = basename(rel);
+
       if (name === "pyproject.toml") {
         entry.dependencies = parsePyprojectDependencies(text);
       } else if (REQUIREMENTS_FILE.test(name)) {
@@ -676,10 +750,12 @@ function manifestDependencies(
     } else {
       entry.dependencies = [];
     }
+
     return entry.dependencies;
   } catch {
     addWarning(state, `Could not parse ${rel}.`);
     entry.dependencies = [];
+
     return entry.dependencies;
   }
 }
@@ -694,12 +770,15 @@ function detectNpm(
 ): void {
   for (const rel of manifests.get("npm") ?? []) {
     const pkg = parsedPackageJson(root, rel, cache, state);
+
     if (!pkg) continue;
+
     if (pkg.packageManager) {
       const rule = ownLookup(
         PACKAGE_MANAGER_FIELD_TOOLING,
         packageManagerName(pkg.packageManager),
       );
+
       if (rule) {
         recordTooling(
           acc,
@@ -708,10 +787,13 @@ function detectNpm(
         );
       }
     }
+
     for (const dependency of pkg.dependencyNames) {
       const tool = ownLookup(NPM_TOOLING, dependency);
+
       if (tool) recordTooling(acc, tool, `npm dep: ${dependency}`);
       const framework = FRAMEWORK_INDEX.get(`npm:${dependency}`);
+
       if (framework && !frameworks.has(framework.name)) {
         frameworks.set(framework.name, {
           name: framework.name,
@@ -745,7 +827,9 @@ function detectParsedDependencies(
             recordTooling(acc, rule, `${eco} dep: ${dependency}`);
           }
         }
+
         const framework = FRAMEWORK_INDEX.get(`${eco}:${dependency}`);
+
         if (framework && !frameworks.has(framework.name)) {
           frameworks.set(framework.name, {
             name: framework.name,
@@ -768,6 +852,7 @@ function buildLanguages(
     .map(([name, files]) => {
       const dirs = acc.langDirs.get(name) ?? new Map<string, number>();
       const limit = Math.max(0, topLocations);
+
       if (dirs.size > limit) {
         addTruncation(state, {
           reason: "languageLocations",
@@ -777,6 +862,7 @@ function buildLanguages(
           subject: name,
         });
       }
+
       return {
         name,
         files,
@@ -813,6 +899,7 @@ function buildTooling(
           subject: name,
         });
       }
+
       return {
         name,
         kinds: [...entry.kinds].sort(),
@@ -847,6 +934,7 @@ function emptyStack(
 /** Produce a deterministic, bounded stack summary for a Git worktree. */
 export function detectStack(options: StackContextOptions): StackContextData {
   const { root } = options;
+
   try {
     if (!statSync(root).isDirectory()) {
       return emptyStack(root, `'${root}' is not a readable directory.`);
@@ -856,6 +944,7 @@ export function detectStack(options: StackContextOptions): StackContextData {
   }
 
   const files = gitFiles(root);
+
   if (!files.ok) return emptyStack(root, files.warning);
 
   const state: CollectionState = {
@@ -866,6 +955,7 @@ export function detectStack(options: StackContextOptions): StackContextData {
     omittedWarnings: 0,
     omittedTruncations: 0,
   };
+
   if (files.outputTruncated) {
     addTruncation(state, {
       reason: "gitFileListBytes",

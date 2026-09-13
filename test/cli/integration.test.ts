@@ -8,11 +8,13 @@ async function runCli(args: readonly string[]) {
     stdout: "pipe",
     stderr: "pipe",
   });
+
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(process.stdout).text(),
     new Response(process.stderr).text(),
     process.exited,
   ]);
+
   return { stdout, stderr, exitCode };
 }
 

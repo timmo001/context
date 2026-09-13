@@ -12,17 +12,21 @@ export function resolveDefaultRemote(remotesOutput: string): ResolvedRemote {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+
   const remote = remotes.includes("upstream")
     ? "upstream"
     : remotes.includes("origin")
       ? "origin"
       : (remotes[0] ?? null);
+
   return { remote, remotes };
 }
 
 /** Parse `git symbolic-ref refs/remotes/<remote>/HEAD` output. */
 export function parseDefaultBranch(ref: string, remote: string): string | null {
   const prefix = `refs/remotes/${remote}/`;
+
   if (!ref.startsWith(prefix)) return null;
+
   return ref.slice(prefix.length) || null;
 }

@@ -9,14 +9,17 @@ async function writeBytes(
 ) {
   const chunk = character.repeat(64 * 1024);
   let written = 0;
+
   while (written < totalBytes) {
     const value = chunk.slice(0, Math.min(chunk.length, totalBytes - written));
+
     if (!stream.write(value)) await once(stream, "drain");
     written += value.length;
   }
 }
 
 const [mode, bytesRaw] = Bun.argv.slice(2);
+
 const bytes = Number.parseInt(bytesRaw ?? "0", 10);
 
 switch (mode) {

@@ -78,13 +78,16 @@ export function renderBashCompletions(): string {
 
   for (const command of cliCommands) {
     lines.push(`    ${command.name})`);
+
     for (const option of command.options ?? []) {
       const choices = choiceWords(option);
+
       if (choices) {
         const patterns = [
           option.name,
           ...(option.short ? [option.short] : []),
         ].join("|");
+
         lines.push("      case $prev in");
         lines.push(`        ${patterns})`);
         lines.push(
@@ -95,7 +98,9 @@ export function renderBashCompletions(): string {
         lines.push("      esac");
       }
     }
+
     const argumentChoices = argumentChoiceWords(command);
+
     if (argumentChoices) {
       lines.push("      if (( cword == 2 )) && [[ $cur != -* ]]; then");
       lines.push(
@@ -104,6 +109,7 @@ export function renderBashCompletions(): string {
       lines.push("        return");
       lines.push("      fi");
     }
+
     lines.push(`      opts=${bashQuote(optionWords(command))}`);
     lines.push("      if [[ $cur == -* ]]; then");
     lines.push('        COMPREPLY=( $(compgen -W "$opts" -- "$cur") )');
@@ -117,6 +123,7 @@ export function renderBashCompletions(): string {
   lines.push("");
   lines.push(`complete -F _${COMMAND_NAME} ${COMMAND_NAME}`);
   lines.push("");
+
   return lines.join("\n");
 }
 
@@ -135,8 +142,10 @@ export function renderFishCompletions(): string {
       `complete -c ${COMMAND_NAME} -n '__fish_use_subcommand' -a ${fishQuote(command.name)} -d ${fishQuote(command.summary)}`,
     );
     const condition = `__fish_seen_subcommand_from ${command.name}`;
+
     for (const option of command.options ?? []) {
       const parts = ["complete", "-c", COMMAND_NAME];
+
       if (option.short) parts.push("-s", option.short.slice(1));
       parts.push(
         "-l",
@@ -144,15 +153,20 @@ export function renderFishCompletions(): string {
         "-d",
         fishQuote(option.description),
       );
+
       if (option.valueName) parts.push("-r");
+
       if (option.completion === "file") parts.push("-F");
       const choices = choiceWords(option);
+
       if (choices) parts.push("-a", fishQuote(choices));
       parts.push("-n", fishQuote(condition));
       lines.push(parts.join(" "));
     }
+
     for (const argument of command.arguments ?? []) {
       const choices = argument.choices?.map((choice) => choice.value).join(" ");
+
       if (choices) {
         lines.push(
           `complete -c ${COMMAND_NAME} -n ${fishQuote(condition)} -a ${fishQuote(choices)}`,
@@ -160,15 +174,18 @@ export function renderFishCompletions(): string {
       }
     }
   }
+
   return `${lines.join("\n")}\n`;
 }
 
 function zshOption(option: CliOptionSpec): string {
   const description = `[${option.description.replaceAll("]", "\\]")}]`;
   const value = option.valueName ? `:${option.valueName}:` : "";
+
   if (option.short) {
     return `'{${option.short},${option.name}}${description}${value}'`;
   }
+
   return `'${option.name}${description}${value}'`;
 }
 
@@ -198,28 +215,34 @@ export function renderZshCompletions(): string {
     lines.push(`  ${command.name})`);
     lines.push("    _arguments -S \\");
     const options = (command.options ?? []).map(zshOption);
+
     const args = (command.arguments ?? []).map((argument, index) => {
       const choices = argument.choices?.map((choice) => choice.value).join(" ");
+
       const action =
         argument.completion === "file"
           ? "_files"
           : choices
             ? `(${choices})`
             : "";
+
       return `      '${index + 1}:${argument.description ?? argument.name}:${action}' \\`;
     });
+
     for (const entry of [
       ...options.map((option) => `      ${option} \\`),
       ...args,
     ]) {
       lines.push(entry);
     }
+
     lines.push("      '*::arg:->args'");
     lines.push("    ;;");
   }
 
   lines.push("esac");
   lines.push("");
+
   return lines.join("\n");
 }
 

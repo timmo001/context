@@ -5,6 +5,8 @@ import {
   Duration,
   Effect,
   Layer,
+  Match,
+  Predicate,
   Schema,
   Stream,
 } from "effect";
@@ -16,12 +18,15 @@ import {
 } from "../../lib/env.js";
 
 const DEFAULT_RETRIES = envNonNegativeInt(ENV.CONTEXT_GITHUB_RETRIES, 2);
+
 const RATE_LIMIT_TTL_MS =
   envNonNegativeInt(ENV.CONTEXT_GITHUB_RATE_LIMIT_TTL_SECONDS, 60) * 1000;
+
 const RATE_LIMIT_MIN_REMAINING = envNonNegativeInt(
   ENV.CONTEXT_GITHUB_RATE_LIMIT_MIN_REMAINING,
   0,
 );
+
 const RATE_LIMIT_MAX_WAIT_SECONDS = envNonNegativeInt(
   ENV.CONTEXT_GITHUB_RATE_LIMIT_MAX_WAIT_SECONDS,
   60,
@@ -88,17 +93,18 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
         yield* gh.stream(args, { timeout: DEFAULT_COMMAND_TIMEOUT_MS }).pipe(
           Stream.mapError((error) =>
             toGitHubError(args, {
-              exitCode: error._tag === "GhCommandError" ? error.exitCode : -1,
-              reason:
-                error._tag === "GhTimeoutError"
-                  ? "timeout"
-                  : error._tag === "GhPlatformError"
-                    ? "spawn"
-                    : "exit",
+              exitCode: Predicate.isTagged(error, "GhCommandError")
+                ? error.exitCode
+                : -1,
+              reason: Match.value(error).pipe(
+                Match.tag("GhTimeoutError", () => "timeout" as const),
+                Match.tag("GhPlatformError", () => "spawn" as const),
+                Match.orElse(() => "exit" as const),
+              ),
               stdout,
               stderr:
-                error._tag === "GhPlatformError" ||
-                error._tag === "GhDecodeError"
+                Predicate.isTagged(error, "GhPlatformError") ||
+                Predicate.isTagged(error, "GhDecodeError")
                   ? stderr ||
                     (error.cause instanceof Error
                       ? error.cause.message
@@ -109,17 +115,21 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
           Stream.runForEach((chunk) =>
             Effect.gen(function* () {
               const encoded = new TextEncoder().encode(chunk.text);
+
               const accepted = Math.min(
                 encoded.byteLength,
                 DEFAULT_COMMAND_MAX_OUTPUT_BYTES - bytes,
               );
+
               const text =
                 accepted === encoded.byteLength
                   ? chunk.text
                   : new TextDecoder().decode(encoded.subarray(0, accepted));
-              if (chunk._tag === "Stdout") stdout += text;
+
+              if (Predicate.isTagged(chunk, "Stdout")) stdout += text;
               else stderr += text;
               bytes += accepted;
+
               if (accepted < encoded.byteLength) {
                 return yield* toGitHubError(args, {
                   exitCode: -1,
@@ -131,6 +141,7 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
             }),
           ),
         );
+
         return stdout;
       });
 
@@ -143,21 +154,26 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
           "--jq",
           ".resources.core | [.remaining, .reset] | @tsv",
         ]);
+
         return parseRateLimit(raw, checkedAtMillis);
       });
 
       const getRateLimit = Effect.fn("GitHub.getRateLimit")(function* () {
         const now = yield* Clock.currentTimeMillis;
+
         if (
           rateLimitCache &&
           now - rateLimitCache.checkedAtMillis < RATE_LIMIT_TTL_MS
         ) {
           return rateLimitCache;
         }
+
         const snapshot = yield* fetchRateLimit(now).pipe(
           Effect.catch(() => Effect.succeed(null)),
         );
+
         rateLimitCache = snapshot;
+
         return snapshot;
       });
 
@@ -167,15 +183,19 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
       ): Effect.fn.Return<void, GitHubError> {
         if (snapshot.remaining > RATE_LIMIT_MIN_REMAINING) return;
         const now = yield* Clock.currentTimeMillis;
+
         const resetInSeconds = Math.max(
           0,
           snapshot.resetEpochSeconds - Math.floor(now / 1000),
         );
+
         if (resetInSeconds <= RATE_LIMIT_MAX_WAIT_SECONDS) {
           yield* Effect.sleep(Duration.seconds(resetInSeconds + 1));
           rateLimitCache = null;
+
           return;
         }
+
         return yield* new GitHubError({
           command: formatGhCommand(args),
           exitCode: 1,
@@ -192,6 +212,7 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
       ) {
         if (args[0] === "api" && args[1] === "rate_limit") return;
         const snapshot = yield* getRateLimit();
+
         if (snapshot) yield* guardRateLimit(args, snapshot);
       });
 
@@ -216,11 +237,15 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
       ): Effect.fn.Return<string, GitHubError> {
         if (checkRateLimit) yield* ensureRateLimit(args);
         const result: GitHubAttemptResult = yield* runAttempt(args);
+
         if (result.type === "success") return result.output;
         const { error } = result;
+
         if (error.rateLimited) rateLimitCache = null;
+
         if (attempt >= retries || !error.retryable) return yield* error;
         yield* Effect.sleep(Duration.seconds(2 ** attempt));
+
         return yield* runWithRetry(args, retries, attempt + 1, checkRateLimit);
       });
 
@@ -271,13 +296,16 @@ function parseRateLimit(
   const [remainingRaw, resetRaw] = raw.trim().split(/\s+/, 2);
   const remaining = parseInteger(remainingRaw);
   const resetEpochSeconds = parseInteger(resetRaw);
+
   if (remaining === null || resetEpochSeconds === null) return null;
+
   return { remaining, resetEpochSeconds, checkedAtMillis };
 }
 
 function parseInteger(value: string | undefined): number | null {
   if (value === undefined) return null;
   const parsed = Number.parseInt(value, 10);
+
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -287,6 +315,7 @@ function toGitHubError(
 ): GitHubError {
   const diagnostic = `${error.stderr}\n${error.stdout}`;
   const rateLimited = isRateLimitMessage(diagnostic);
+
   return new GitHubError({
     command: formatGhCommand(args),
     exitCode: error.exitCode,
@@ -300,11 +329,13 @@ function toGitHubError(
 
 function isRateLimitMessage(stderr: string): boolean {
   const lower = stderr.toLowerCase();
+
   return lower.includes("rate limit") || lower.includes("secondary rate");
 }
 
 function isTransientMessage(stderr: string): boolean {
   const lower = stderr.toLowerCase();
+
   return [
     "http 5",
     "502",

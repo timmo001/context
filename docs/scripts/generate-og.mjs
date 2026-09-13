@@ -8,12 +8,14 @@ import sharp from "sharp";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const W = 1200;
+
 const H = 630;
 
 // Embed the logo as a nested SVG at a fixed position and size.
 const logoRaw = (
   await readFile(path.join(root, "src/assets/logo.svg"), "utf8")
 ).trim();
+
 const logo = logoRaw.replace(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">',
   '<svg x="120" y="175" width="280" height="280" viewBox="0 0 36 36">',
@@ -34,4 +36,5 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 </svg>`;
 
 await sharp(Buffer.from(svg)).png().toFile(path.join(root, "public/og.png"));
+
 console.log("Wrote public/og.png");

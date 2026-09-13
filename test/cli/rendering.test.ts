@@ -16,8 +16,10 @@ describe("CLI registry rendering", () => {
 
       const commandHelp = renderHelp(command.name);
       expect(commandHelp).toStartWith(`Usage: context ${command.name}`);
+
       for (const option of command.options ?? []) {
         expect(commandHelp).toContain(option.name);
+
         if (option.short) expect(commandHelp).toContain(option.short);
       }
     }
@@ -33,6 +35,7 @@ describe("CLI registry rendering", () => {
     for (const output of completions) {
       for (const command of cliCommands) {
         expect(output).toContain(command.name);
+
         for (const option of command.options ?? []) {
           expect(output).toContain(option.name.slice(2));
         }

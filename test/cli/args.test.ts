@@ -12,8 +12,10 @@ function usageError(args: readonly string[]): string {
     parseCliArgs(args);
   } catch (error) {
     expect(error).toBeInstanceOf(UsageError);
+
     return error instanceof Error ? error.message : String(error);
   }
+
   throw new Error(`Expected ${JSON.stringify(args)} to fail`);
 }
 
@@ -106,6 +108,7 @@ describe("parseSince", () => {
     [["-10m", "-10 minutes"], "2024-03-15T12:10:00.000Z"],
   ])("parses relative aliases %j", (values, expected) => {
     const clock = spyOn(Date, "now").mockReturnValue(1_710_504_000_000);
+
     try {
       for (const value of values) {
         expect(parseSince(value)).toBe(expected);
@@ -147,6 +150,7 @@ describe("gitCliInvocation", () => {
     const invocation = gitCliInvocation(
       parseCliArgs(["git", "--json", "--diff", "--branch-diff"]),
     );
+
     expect(invocation.json).toBeTrue();
     expect(invocation.inertJsonFlags).toEqual(["--diff", "--branch-diff"]);
     expect(invocation.options.diff).toBeFalse();
@@ -157,6 +161,7 @@ describe("gitCliInvocation", () => {
     const invocation = gitCliInvocation(
       parseCliArgs(["git", "--diff", "--branch-diff"]),
     );
+
     expect(invocation.inertJsonFlags).toEqual([]);
     expect(invocation.options.diff).toBeTrue();
     expect(invocation.options.branchDiff).toBeTrue();

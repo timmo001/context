@@ -24,6 +24,7 @@ function commandFailureMessage(
   error: CommandError,
 ): string {
   const stderr = error.stderr ? `: ${error.stderr}` : "";
+
   return `${[command, ...args].join(" ")} failed with exit ${error.exitCode}${stderr}`;
 }
 
@@ -34,6 +35,7 @@ export function gitOutput(
 ): Effect.Effect<string, GitCommandError, CommandExecutor> {
   return Effect.gen(function* () {
     const executor = yield* CommandExecutor;
+
     return yield* executor.run("git", args, opts).pipe(
       Effect.catchTag("CommandError", (error) =>
         Effect.fail(
