@@ -33,7 +33,9 @@ export function envString(name: string): string | undefined {
 /** Read a non-negative integer from the environment, falling back on invalid input. */
 export function envNonNegativeInt(name: string, fallback: number): number {
   const value = envString(name);
+
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
+
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }

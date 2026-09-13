@@ -21,12 +21,15 @@ afterEach(() => {
 function repository(): string {
   const root = mkdtempSync(join(tmpdir(), "context-stack-"));
   roots.push(root);
+
   const result = Bun.spawnSync(["git", "init", "--quiet"], {
     cwd: root,
     stdout: "ignore",
     stderr: "pipe",
   });
+
   if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+
   return root;
 }
 
@@ -116,6 +119,7 @@ describe("stack detection reliability", () => {
     const workflows = detect(root).ecosystems.find(
       ({ name }) => name === "github-actions",
     );
+
     expect(workflows?.manifests).toEqual([
       ".github/workflows/root.yml",
       "packages/app/.github/workflows/nested.yaml",
@@ -160,6 +164,7 @@ describe("stack detection reliability", () => {
 
   test("caps manifest and evidence collection with structured reasons", () => {
     const root = repository();
+
     for (let index = 0; index < 130; index += 1) {
       write(
         root,

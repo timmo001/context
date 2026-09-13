@@ -14,6 +14,7 @@ export interface DiffCounts {
 function parseCount(value: string): number | null {
   if (value === "-") return null;
   const parsed = Number(value);
+
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -21,17 +22,22 @@ function parseCount(value: string): number | null {
 export function parseNumstatZ(output: string): Map<string, DiffCounts> {
   const fields = output.split("\0");
   const counts = new Map<string, DiffCounts>();
+
   for (let index = 0; index < fields.length - 1;) {
     const record = (fields[index++] ?? "").replace(/^\n+/, "");
     const firstTab = record.indexOf("\t");
     const secondTab = record.indexOf("\t", firstTab + 1);
+
     if (firstTab === -1 || secondTab === -1) continue;
     const added = record.slice(0, firstTab);
     const deleted = record.slice(firstTab + 1, secondTab);
     const path = record.slice(secondTab + 1);
+
     if (!added || !deleted) continue;
     const destination = path || fields[index + 1] || fields[index] || "";
+
     if (!path) index += 2;
+
     if (destination) {
       counts.set(destination, {
         added: parseCount(added),
@@ -39,6 +45,7 @@ export function parseNumstatZ(output: string): Map<string, DiffCounts> {
       });
     }
   }
+
   return counts;
 }
 
@@ -48,6 +55,7 @@ function displayRaw(
   originalPath?: string,
 ): string {
   const escapedPath = escapeTextControls(path);
+
   return originalPath === undefined
     ? `${status}\t${escapedPath}`
     : `${status}\t${escapeTextControls(originalPath)}\t${escapedPath}`;
@@ -61,6 +69,7 @@ export function fileChange(
   originalPath?: string,
 ): FileChange {
   const diffCounts = counts.get(path);
+
   const change: MutableFileChange = {
     raw: displayRaw(status, path, originalPath),
     status,
@@ -69,7 +78,9 @@ export function fileChange(
     added: diffCounts?.added ?? null,
     deleted: diffCounts?.deleted ?? null,
   };
+
   if (originalPath !== undefined) change.originalPath = originalPath;
+
   return change;
 }
 
@@ -80,18 +91,23 @@ export function parseNameStatusZ(
 ): FileChange[] {
   const fields = output.split("\0");
   const changes: FileChange[] = [];
+
   for (let index = 0; index < fields.length - 1;) {
     const status = fields[index++] ?? "";
     const firstPath = fields[index++] ?? "";
+
     if (!status || !firstPath) continue;
+
     if (status.startsWith("R") || status.startsWith("C")) {
       const destination = fields[index++] ?? "";
+
       if (destination)
         changes.push(fileChange(status, destination, counts, firstPath));
     } else {
       changes.push(fileChange(status, firstPath, counts));
     }
   }
+
   return changes;
 }
 
@@ -107,15 +123,20 @@ export function parseUntrackedZ(output: string): FileChange[] {
 export function parseShortStatusZ(output: string): string {
   const fields = output.split("\0");
   const lines: string[] = [];
+
   for (let index = 0; index < fields.length - 1;) {
     const record = fields[index++] ?? "";
+
     if (!record) continue;
+
     if (record.startsWith("## ")) {
       lines.push(`## ${escapeTextControls(record.slice(3))}`);
       continue;
     }
+
     const prefix = record.slice(0, 3);
     const destination = record.slice(3);
+
     if (prefix.startsWith("R") || prefix.startsWith("C")) {
       const source = fields[index++] ?? "";
       lines.push(
@@ -125,5 +146,6 @@ export function parseShortStatusZ(output: string): string {
       lines.push(`${prefix}${escapeTextControls(destination)}`);
     }
   }
+
   return lines.join("\n");
 }

@@ -24,6 +24,7 @@ type MutableBranchMetadata = {
 /** Truncate text to a character budget, appending a notice when it overflows. */
 function limited(text: string, max: number): string {
   if (text.length <= max) return text;
+
   return `${text.slice(0, max)}\n\n[TRUNCATED ${text.length - max} CHARS]`;
 }
 
@@ -40,6 +41,7 @@ function limitedWithNotice(
     original: text.length,
     retained: max,
   });
+
   return limited(text, max);
 }
 
@@ -63,6 +65,7 @@ function safeBranchMetadata(
       path,
       truncations,
     );
+
   const remoteValue = (value: string, path: string) =>
     limitedWithNotice(
       escapeTextControls(value),
@@ -70,6 +73,7 @@ function safeBranchMetadata(
       path,
       truncations,
     );
+
   if (metadata.remotes.length > METADATA_LIMITS.remotes) {
     truncations.push({
       path: "branchMetadata.remotes",
@@ -78,6 +82,7 @@ function safeBranchMetadata(
       retained: METADATA_LIMITS.remotes,
     });
   }
+
   if (
     metadata.remoteDetails &&
     metadata.remoteDetails.length > METADATA_LIMITS.remoteDetails
@@ -89,6 +94,7 @@ function safeBranchMetadata(
       retained: METADATA_LIMITS.remoteDetails,
     });
   }
+
   const safe: MutableBranchMetadata = {
     ...metadata,
     repositoryRoot: metadataValue(
@@ -126,6 +132,7 @@ function safeBranchMetadata(
         remoteValue(remote, `branchMetadata.remotes[${index}]`),
       ),
   };
+
   if (metadata.remoteDetails) {
     safe.remoteDetails = metadata.remoteDetails
       .slice(0, METADATA_LIMITS.remoteDetails)
@@ -148,6 +155,7 @@ function safeBranchMetadata(
         ),
       }));
   }
+
   return safe;
 }
 
@@ -190,12 +198,15 @@ function toPullRequestJson(pr: PullRequestData): PullRequestJson {
     },
     truncations: pr.truncations,
   };
+
   if (pr.description !== undefined) {
     json.description = safeMultiline(pr.description);
   }
+
   if (pr.labels !== undefined) {
     json.labels = pr.labels.map((label) => escapeTextControls(label));
   }
+
   if (pr.comments !== undefined) {
     json.comments = pr.comments.map((comment) => ({
       author: escapeTextControls(comment.author),
@@ -203,6 +214,7 @@ function toPullRequestJson(pr: PullRequestData): PullRequestJson {
       body: safeMultiline(comment.body),
     }));
   }
+
   if (pr.reviews !== undefined) {
     json.reviews = pr.reviews.map((review) => ({
       author: escapeTextControls(review.author),
@@ -211,9 +223,11 @@ function toPullRequestJson(pr: PullRequestData): PullRequestJson {
       body: safeMultiline(review.body),
     }));
   }
+
   if (pr.checks !== undefined) {
     json.checks = limited(safeMultiline(pr.checks), CHAR_LIMITS.checks);
   }
+
   return json;
 }
 
@@ -250,17 +264,21 @@ function limitedWarnings(
 ): readonly string[] {
   const bounded: string[] = [];
   let remaining = CHAR_LIMITS.warnings;
+
   for (const warning of warnings) {
     if (remaining <= 0) break;
+
     const value = limitedWithNotice(
       escapeTextControls(warning),
       Math.min(remaining, CHAR_LIMITS.warning),
       `warnings[${bounded.length}]`,
       truncations,
     );
+
     bounded.push(value);
     remaining -= value.length;
   }
+
   if (bounded.length < warnings.length) {
     truncations.push({
       path: "warnings",
@@ -270,6 +288,7 @@ function limitedWarnings(
     });
     bounded.push(`[TRUNCATED ${warnings.length - bounded.length} WARNINGS]`);
   }
+
   return bounded;
 }
 
@@ -282,6 +301,7 @@ function limitedWarnings(
  */
 export function renderBranchContextJson(data: BranchContextData): string {
   const truncations: TruncationNotice[] = [];
+
   if (!data.inRepo) {
     return JSON.stringify({
       inRepo: false,
@@ -292,10 +312,12 @@ export function renderBranchContextJson(data: BranchContextData): string {
   }
 
   const workScopeCollected = data.workScope?.state === "collected";
+
   const recentCommits =
     !workScopeCollected && data.commits && data.commits.records.length > 0
       ? recentCommitsText(data.commits.records)
       : undefined;
+
   const branchMetadata = data.branchMetadata
     ? safeBranchMetadata(data.branchMetadata, truncations)
     : undefined;
@@ -306,7 +328,9 @@ export function renderBranchContextJson(data: BranchContextData): string {
     warnings: limitedWarnings(data.warnings, truncations),
     truncations,
   };
+
   if (branchMetadata) payload.branchMetadata = branchMetadata;
+
   if (data.status) {
     payload.status = {
       short: limitedWithNotice(
@@ -335,6 +359,7 @@ export function renderBranchContextJson(data: BranchContextData): string {
       ),
     };
   }
+
   if (data.workScope?.state === "collected") {
     payload.workScope = {
       state: data.workScope.state,
@@ -368,6 +393,7 @@ export function renderBranchContextJson(data: BranchContextData): string {
       reason: escapeTextControls(data.workScope.reason),
     };
   }
+
   if (recentCommits !== undefined) {
     payload.commits = limitedWithNotice(
       recentCommits,
@@ -378,9 +404,11 @@ export function renderBranchContextJson(data: BranchContextData): string {
   }
 
   const rendered = JSON.stringify(payload);
+
   if (rendered.length <= CHAR_LIMITS.jsonOutput) return rendered;
 
   const warning = `Branch context payload exceeded ${CHAR_LIMITS.jsonOutput} characters; large sections were omitted.`;
+
   const fallback: BranchContextJson = {
     inRepo: true,
     pullRequest: null,
@@ -395,6 +423,8 @@ export function renderBranchContextJson(data: BranchContextData): string {
       },
     ],
   };
+
   if (branchMetadata) fallback.branchMetadata = branchMetadata;
+
   return JSON.stringify(fallback);
 }

@@ -74,6 +74,7 @@ function commandFailure(
   error: CommandError,
 ): BranchContextError {
   const detail = error.stderr.trim() || error.reason;
+
   return new BranchContextError({
     message: escapeTextControls(
       `git ${args.join(" ")} failed with exit ${error.exitCode}: ${detail}`,
@@ -101,6 +102,7 @@ function probeGit(
 ): Effect.Effect<string | null, BranchContextError, CommandExecutor> {
   return Effect.gen(function* () {
     const executor = yield* CommandExecutor;
+
     return yield* executor.run("git", args).pipe(
       Effect.map((output) => output.trim()),
       Effect.catchTag("CommandError", (error) =>
@@ -118,6 +120,7 @@ function gitRefExists(
 ): Effect.Effect<boolean, BranchContextError, CommandExecutor> {
   return Effect.gen(function* () {
     const executor = yield* CommandExecutor;
+
     return yield* executor
       .run("git", ["rev-parse", "--verify", "--quiet", ref])
       .pipe(
@@ -143,25 +146,32 @@ function gitRefExists(
 function parseNumstatLog(output: string): Map<string, Map<string, DiffCounts>> {
   const byCommit = new Map<string, Map<string, DiffCounts>>();
   const fields = output.split("\0");
+
   for (let index = 0; index < fields.length - 1;) {
     if ((fields[index] ?? "").replace(/^\n+/, "") !== COMMIT_MARKER) {
       index += 1;
       continue;
     }
+
     const hash = fields[index + 1] ?? "";
     index += 2;
     const start = index;
+
     while (
       index < fields.length - 1 &&
       (fields[index] ?? "").replace(/^\n+/, "") !== COMMIT_MARKER
     ) {
       index += 1;
     }
+
     const records = fields.slice(start, index);
+
     while (records[0] === "") records.shift();
+
     if (records[0] !== undefined) records[0] = records[0].replace(/^\n+/, "");
     byCommit.set(hash, parseNumstatZ(`${records.join("\0")}\0`));
   }
+
   return byCommit;
 }
 
@@ -170,10 +180,12 @@ function parseAheadBehind(
   output: string,
 ): { ahead: number; behind: number } | null {
   const fields = output.trim().split(/\s+/);
+
   if (fields.length !== 2) return null;
   const [behindText, aheadText] = fields;
   const behind = Number(behindText);
   const ahead = Number(aheadText);
+
   return Number.isSafeInteger(ahead) &&
     ahead >= 0 &&
     Number.isSafeInteger(behind) &&
@@ -185,10 +197,12 @@ function parseAheadBehind(
 /** Strip credentials from HTTP(S) remote URLs before exposing them to agents. */
 function sanitiseRemoteUrl(url: string): string {
   if (!/^https?:\/\//i.test(url)) return url;
+
   try {
     const parsed = new URL(url);
     parsed.username = "";
     parsed.password = "";
+
     return parsed.toString();
   } catch {
     return url.replace(/^(https?:\/\/)[^/@]+@/i, "$1");
@@ -208,6 +222,7 @@ export function buildBranchContext(
 
     const inRepo =
       (yield* probeGit(["rev-parse", "--is-inside-work-tree"])) === "true";
+
     if (!inRepo) {
       return { inRepo: false, pullRequest: null, warnings };
     }
@@ -218,17 +233,21 @@ export function buildBranchContext(
     const symbolicRef = remote
       ? yield* probeGit(["symbolic-ref", `refs/remotes/${remote}/HEAD`])
       : null;
+
     const defaultBranch =
       remote && symbolicRef ? parseDefaultBranch(symbolicRef, remote) : null;
 
     const branch = (yield* gitOutput(["branch", "--show-current"])).trim();
     const onDefaultBranch = defaultBranch ? branch === defaultBranch : null;
+
     const repositoryRoot = (yield* gitOutput([
       "rev-parse",
       "--show-toplevel",
     ])).trim();
+
     const repositoryName =
       repositoryRoot.split("/").filter(Boolean).pop() ?? "";
+
     const headSha = (yield* gitOutput(["rev-parse", "--short", "HEAD"])).trim();
 
     // Compare against the branch's upstream tracking ref so locally committed
@@ -240,10 +259,13 @@ export function buildBranchContext(
       "--symbolic-full-name",
       "@{upstream}",
     ]);
+
     const defaultBranchRef =
       remote && defaultBranch ? `${remote}/${defaultBranch}` : null;
+
     const baseRef = upstream ?? defaultBranchRef;
     const baseExists = baseRef ? yield* gitRefExists(baseRef) : false;
+
     const aheadBehind = baseExists
       ? parseAheadBehind(
           yield* gitOutput([
@@ -254,11 +276,13 @@ export function buildBranchContext(
           ]),
         )
       : null;
+
     if (baseExists && !aheadBehind) {
       return yield* new BranchContextError({
         message: `Unable to parse ahead/behind counts for '${baseRef}'.`,
       });
     }
+
     const ahead = aheadBehind?.ahead ?? null;
     const behind = aheadBehind?.behind ?? null;
 
@@ -266,9 +290,11 @@ export function buildBranchContext(
       onDefaultBranch === false && defaultBranchRef
         ? yield* gitRefExists(defaultBranchRef)
         : false;
+
     const forkBase = defaultRefExists ? defaultBranchRef : null;
 
     let branchMetadata: BranchMetadata | undefined;
+
     if (options.branchMetadata) {
       const metadata: MutableBranchMetadata = {
         currentBranch: branch,
@@ -284,9 +310,11 @@ export function buildBranchContext(
         onDefaultBranch,
         remotes,
       };
+
       if (options.remoteDetails) {
         metadata.remoteDetails = yield* collectRemoteDetails(remotes);
       }
+
       branchMetadata = metadata;
     }
 
@@ -305,6 +333,7 @@ export function buildBranchContext(
               reason: "Default branch is unresolved.",
             } as const)
       : undefined;
+
     if (workScope?.state === "unresolved")
       warnings.push(
         "Skipped work-scope collection: default branch is unresolved.",
@@ -327,11 +356,13 @@ export function buildBranchContext(
       options.pullRequest && branch && onDefaultBranch === false
         ? yield* collectPullRequest(options)
         : { data: null, warnings: [] };
+
     if (options.pullRequest && branch && onDefaultBranch === null) {
       warnings.push(
         "Skipped pull request collection: default branch is unresolved.",
       );
     }
+
     warnings.push(...prResult.warnings);
 
     return {
@@ -360,16 +391,20 @@ function collectStatus(): Effect.Effect<
       yield* gitOutput(["diff", "--name-status", "-z"]),
       parseNumstatZ(yield* gitOutput(["diff", "--numstat", "-z"])),
     );
+
     const staged = parseNameStatusZ(
       yield* gitOutput(["diff", "--cached", "--name-status", "-z"]),
       parseNumstatZ(yield* gitOutput(["diff", "--cached", "--numstat", "-z"])),
     );
+
     const untracked = parseUntrackedZ(
       yield* gitOutput(["ls-files", "--others", "--exclude-standard", "-z"]),
     );
+
     const short = parseShortStatusZ(
       yield* gitOutput(["status", "--short", "--branch", "-z"]),
     );
+
     return { unstaged, staged, untracked, short };
   });
 }
@@ -380,6 +415,7 @@ function collectRemoteDetails(
 ): Effect.Effect<readonly RemoteDetail[], Error, CommandExecutor> {
   return Effect.gen(function* () {
     const details: RemoteDetail[] = [];
+
     for (const name of remotes) {
       details.push({
         name,
@@ -391,6 +427,7 @@ function collectRemoteDetails(
         ),
       });
     }
+
     return details;
   });
 }
@@ -408,9 +445,12 @@ function collectWorkScope(
       "--format=%h%x00%s",
       `${forkBase}..HEAD`,
     ])).split("\0");
+
     const branchCommits: { hash: string; subject: string }[] = [];
+
     for (let index = 0; index + 1 < commitFields.length; index += 2) {
       const hash = (commitFields[index] ?? "").replace(/^\n+/, "");
+
       if (hash)
         branchCommits.push({ hash, subject: commitFields[index + 1] ?? "" });
     }
@@ -421,6 +461,7 @@ function collectWorkScope(
         yield* gitOutput(["diff", "--numstat", "-z", `${forkBase}...HEAD`]),
       ),
     );
+
     const branchDiffStat = (yield* gitOutput([
       "diff",
       "--stat",
@@ -447,9 +488,11 @@ function collectCommits(
     // A commit is "pushed" when it is reachable from the base ref. `rev-list
     // base..HEAD` lists exactly the local commits not yet on the remote.
     const baseExists = baseRef ? yield* gitRefExists(baseRef) : false;
+
     const aheadOutput = baseExists
       ? yield* gitOutput(["rev-list", `${baseRef}..HEAD`])
       : "";
+
     const aheadHashes = new Set(
       aheadOutput
         .split("\n")
@@ -466,6 +509,7 @@ function collectCommits(
       `--format=${COMMIT_MARKER}%x00%H%x00%h%x00%cI%x00%s%x00`,
       ...range.args,
     ]);
+
     const numstatLog = yield* gitOutput([
       "log",
       "--numstat",
@@ -473,7 +517,9 @@ function collectCommits(
       `--format=${COMMIT_MARKER}%x00%H%x00`,
       ...range.args,
     ]);
+
     const now = yield* Clock.currentTimeMillis;
+
     const records = parseCommits(
       logOutput,
       aheadHashes,
@@ -481,6 +527,7 @@ function collectCommits(
       parseNumstatLog(numstatLog),
       now,
     );
+
     return { range, records };
   });
 }
@@ -494,17 +541,23 @@ function collectDiffs(
     if (!options.diff && !options.branchDiff) return undefined;
 
     const unstaged = options.diff ? yield* gitOutput(["diff"]) : undefined;
+
     const staged = options.diff
       ? yield* gitOutput(["diff", "--cached"])
       : undefined;
+
     const branch = options.branchDiff
       ? yield* resolveBranchDiff(context)
       : undefined;
 
     const diffs: MutableDiffSection = {};
+
     if (unstaged !== undefined) diffs.unstaged = unstaged;
+
     if (staged !== undefined) diffs.staged = staged;
+
     if (branch !== undefined) diffs.branch = branch;
+
     return diffs;
   });
 }
@@ -532,6 +585,7 @@ function resolveBranchDiff(
         message: `On the default branch (${context.defaultBranch}); --branch-diff requires a feature branch.`,
       });
     }
+
     if (!context.defaultRefExists || !context.defaultBranchRef) {
       return yield* new BranchContextError({
         message: "Cannot resolve the default branch ref for --branch-diff.",
@@ -543,6 +597,7 @@ function resolveBranchDiff(
       context.defaultBranchRef,
       "HEAD",
     ]);
+
     if (!mergeBase) {
       return yield* new BranchContextError({
         message: `Cannot find a merge base between ${context.defaultBranchRef} and HEAD for --branch-diff.`,
@@ -550,6 +605,7 @@ function resolveBranchDiff(
     }
 
     const diff = yield* gitOutput(["diff", mergeBase]);
+
     return {
       ref: context.defaultBranchRef,
       mergeBase: mergeBase.slice(0, 7),
@@ -577,6 +633,7 @@ function resolveCommitRange(
         sinceRef: forkBase,
       };
     }
+
     if (since) {
       return { args: ["--since", since, "HEAD"], kind: "since", since };
     }
@@ -589,16 +646,20 @@ function resolveCommitRange(
         "HEAD",
       ])).trim(),
     );
+
     if (!Number.isSafeInteger(total) || total < 0) {
       return yield* new BranchContextError({
         message: "Unable to parse today's commit count.",
       });
     }
+
     const limit = Math.min(
       MAX_RECENT_COMMIT_LIMIT,
       Math.max(MIN_RECENT_COMMIT_LIMIT, total),
     );
+
     const args = ["-n", String(limit), "HEAD"];
+
     return total > MIN_RECENT_COMMIT_LIMIT
       ? { args, kind: "today", total, limit }
       : { args, kind: "recent" };
@@ -624,9 +685,12 @@ function parseCommits(
     isoDate: string;
     files: FileChange[];
   }[] = [];
+
   const fields = logOutput.split("\0");
+
   for (let index = 0; index < fields.length - 1;) {
     const marker = (fields[index++] ?? "").replace(/^\n+/, "");
+
     if (marker !== COMMIT_MARKER) continue;
     const fullHash = fields[index++] ?? "";
     const shortHash = fields[index++] ?? "";
@@ -634,21 +698,27 @@ function parseCommits(
     const subject = fields[index++] ?? "";
     const files: FileChange[] = [];
     const counts = numstatByCommit.get(fullHash) ?? new Map();
+
     while (
       index < fields.length - 1 &&
       (fields[index] ?? "").replace(/^\n+/, "") !== COMMIT_MARKER
     ) {
       const status = (fields[index++] ?? "").replace(/^\n+/, "");
+
       if (!status) continue;
       const firstPath = fields[index++] ?? "";
+
       if (!firstPath) continue;
+
       if (status.startsWith("R") || status.startsWith("C")) {
         const path = fields[index++] ?? "";
+
         if (path) files.push(fileChange(status, path, counts, firstPath));
       } else {
         files.push(fileChange(status, firstPath, counts));
       }
     }
+
     records.push({
       isoDate,
       shortHash,

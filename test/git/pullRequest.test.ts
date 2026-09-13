@@ -34,13 +34,16 @@ describe("collectPullRequest", () => {
   test("requests exactly the enabled fields and check details", async () => {
     let jsonCall: { args: readonly string[]; options: unknown } | undefined;
     let runCall: { args: readonly string[]; options: unknown } | undefined;
+
     const github: GitHubService = {
       json: (args, options) => {
         jsonCall = { args, options };
+
         return Effect.succeed(summaryResponse);
       },
       run: (args, options) => {
         runCall = { args, options };
+
         return Effect.succeed("build\tpass\n");
       },
     };
@@ -91,6 +94,7 @@ describe("collectPullRequest", () => {
       json: () => Effect.succeed("unexpected"),
       run: () => Effect.die("Unexpected checks command"),
     };
+
     const incomplete: GitHubService = {
       json: () => Effect.succeed({ number: 42 }),
       run: () => Effect.die("Unexpected checks command"),
@@ -148,8 +152,10 @@ describe("collectPullRequest", () => {
     "retains useful check output on exit $exitCode",
     async ({ exitCode, status }) => {
       const commands: string[][] = [];
+
       const github = await makeGitHub((args) => {
         commands.push([...args]);
+
         return args[1] === "view"
           ? success(JSON.stringify(summaryResponse))
           : failure("check status", { stdout: `build\t${status}\n`, exitCode });
@@ -176,6 +182,7 @@ describe("collectPullRequest", () => {
         body: "c".repeat(PR_LIMITS.itemBody + 1),
       }),
     );
+
     const reviews = Array.from(
       { length: PR_LIMITS.reviews + 1 },
       (_, index) => ({
@@ -185,9 +192,11 @@ describe("collectPullRequest", () => {
         body: "r".repeat(PR_LIMITS.itemBody + 1),
       }),
     );
+
     const labels = Array.from({ length: PR_LIMITS.labels + 1 }, (_, index) => ({
       name: `label-${index}`,
     }));
+
     const github: GitHubService = {
       json: () =>
         Effect.succeed({
@@ -219,6 +228,7 @@ describe("collectPullRequest", () => {
     );
 
     expect(result.data).not.toBeNull();
+
     if (!result.data) throw new Error("Expected pull request data");
     expect(result.data.summary.title).toHaveLength(PR_LIMITS.title);
     expect(result.data.summary.url).toHaveLength(PR_LIMITS.url);

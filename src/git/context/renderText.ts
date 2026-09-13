@@ -5,6 +5,7 @@
  * output: branch header, an optional labelled pull request block, working-tree
  * sections, the recent-commit list, and optional full diffs.
  */
+import { Match } from "effect";
 import { formatRelativeTimeAgo } from "../services/relativeTime.js";
 import { plainStyler, type Styler } from "../../lib/ansi.js";
 import { escapeTextControls } from "../../lib/text.js";
@@ -22,14 +23,17 @@ import type {
 /** Render a single {@link FileChange} as its name-status line plus counts. */
 function formatFileChange(file: FileChange): string {
   if (!file.countsKnown) return file.raw;
+
   if (file.added === null || file.deleted === null)
     return `${file.raw}  (binary)`;
+
   return `${file.raw}  (+${file.added} -${file.deleted})`;
 }
 
 /** Render a file list, or `  (none)` when empty. */
 function formatFileList(files: readonly FileChange[]): string {
   if (files.length === 0) return "  (none)";
+
   return files.map(formatFileChange).join("\n");
 }
 
@@ -42,6 +46,7 @@ function pluralise(count: number, noun: string): string {
 function formatAheadBehind(meta: BranchMetadata): string {
   if (meta.ahead === null || meta.behind === null)
     return "comparison unavailable";
+
   return `${meta.ahead} ahead, ${meta.behind} behind`;
 }
 
@@ -56,8 +61,10 @@ function safeMultiline(value: string): string {
 /** Format an ISO timestamp as a compact local `YYYY-MM-DD HH:mm` label. */
 function formatHeadingDateTime(value: string | null): string {
   const date = new Date(value ?? "");
+
   if (!Number.isFinite(date.getTime())) return "unknown time";
   const pad = (part: number) => String(part).padStart(2, "0");
+
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
@@ -68,19 +75,25 @@ function formatCommitsHeading(
 ): string {
   const count = pluralise(commits.length, "commit");
   const legend = "↑ local, ✓ pushed";
+
   if (range.kind === "branch") {
     return `Branch commits since ${safe(range.sinceRef)} (${count}, ${legend}):`;
   }
+
   if (range.kind === "today") {
     if (range.total > range.limit) {
       return `Today's commits from 00:00 (${commits.length} of ${range.total} commits, max ${range.limit}; use --since for more, ${legend}):`;
     }
+
     return `Today's commits from 00:00 (${count}, ${legend}):`;
   }
+
   if (range.kind === "since") {
     return `Recent commits since ${formatHeadingDateTime(range.since)} (${count}, ${legend}):`;
   }
+
   const oldest = commits[commits.length - 1];
+
   return `Recent commits from ${formatHeadingDateTime(oldest?.isoDate ?? null)} (${count}, ${legend}):`;
 }
 
@@ -99,10 +112,13 @@ function appendRemoteDetails(
 ): void {
   if (!meta.remoteDetails) return;
   lines.push(styler.heading("Remotes:"));
+
   if (meta.remoteDetails.length === 0) {
     lines.push("  (none)");
+
     return;
   }
+
   for (const remote of meta.remoteDetails) {
     lines.push(`  ${safe(remote.name)}:`);
     lines.push(
@@ -135,17 +151,20 @@ function appendPullRequest(
     `  ${styler.label("Branches:")} ${s.headRefName ? safe(s.headRefName) : "(unknown)"} → ${s.baseRefName ? safe(s.baseRefName) : "(unknown)"}`,
   );
   lines.push(`  ${styler.label("Comments:")} ${s.commentCount}`);
+
   if (pr.labels) {
     lines.push(
       `  ${styler.label("Labels:")} ${pr.labels.length ? pr.labels.map(safe).join(", ") : "(none)"}`,
     );
   }
+
   lines.push(`  ${styler.label("URL:")} ${s.url ? safe(s.url) : "(unknown)"}`);
 
   if (pr.description !== undefined) {
     lines.push("");
     lines.push(`  ${styler.heading("Description:")}`);
     const body = safeMultiline(pr.description).trim();
+
     if (body) {
       for (const line of body.split("\n")) lines.push(`    ${line}`);
     } else {
@@ -154,7 +173,9 @@ function appendPullRequest(
   }
 
   if (pr.comments) appendComments(lines, pr.comments, styler);
+
   if (pr.reviews) appendReviews(lines, pr.reviews, styler);
+
   if (pr.checks !== undefined) appendChecks(lines, pr.checks, styler);
 }
 
@@ -166,14 +187,18 @@ function appendComments(
 ): void {
   lines.push("");
   lines.push(`  ${styler.heading(`Comments (${comments.length}):`)}`);
+
   if (comments.length === 0) {
     lines.push("    (none)");
+
     return;
   }
+
   for (const comment of comments) {
     lines.push(
       `    @${safe(comment.author)} ${formatRelativeTimeAgo(comment.createdAt)}:`,
     );
+
     for (const line of safeMultiline(comment.body).trim().split("\n")) {
       lines.push(`      ${line}`);
     }
@@ -188,15 +213,20 @@ function appendReviews(
 ): void {
   lines.push("");
   lines.push(`  ${styler.heading(`Reviews (${reviews.length}):`)}`);
+
   if (reviews.length === 0) {
     lines.push("    (none)");
+
     return;
   }
+
   for (const review of reviews) {
     const header = `    @${safe(review.author)} ${safe(review.state)} ${formatRelativeTimeAgo(review.submittedAt)}`;
     const body = safeMultiline(review.body).trim();
+
     if (body) {
       lines.push(`${header}:`);
+
       for (const line of body.split("\n")) lines.push(`      ${line}`);
     } else {
       lines.push(header);
@@ -209,10 +239,13 @@ function appendChecks(lines: string[], checks: string, styler: Styler): void {
   lines.push("");
   lines.push(`  ${styler.heading("Checks:")}`);
   const trimmed = safeMultiline(checks).trim();
+
   if (!trimmed) {
     lines.push("    (none)");
+
     return;
   }
+
   for (const line of trimmed.split("\n")) lines.push(`    ${line}`);
 }
 
@@ -251,6 +284,7 @@ export function renderBranchContextText(
   } else {
     lines.push(`${styler.heading("Branch:")} (metadata omitted)`);
   }
+
   lines.push("");
 
   if (data.pullRequest) {
@@ -279,15 +313,19 @@ export function renderBranchContextText(
       data.commits?.range.kind === "branch"
         ? data.commits.range.sinceRef
         : "default branch";
+
     lines.push(`Branch changes vs ${safe(comparisonRef)}:`);
     lines.push(formatFileList(data.workScope.branchFiles));
+
     if (data.workScope.branchDiffStat.trim()) {
       lines.push("");
       lines.push("Diff stat:");
+
       for (const line of data.workScope.branchDiffStat.split("\n")) {
         if (line.trim()) lines.push(`  ${safe(line)}`);
       }
     }
+
     lines.push("");
   }
 
@@ -297,6 +335,7 @@ export function renderBranchContextText(
         formatCommitsHeading(data.commits.range, data.commits.records),
       ),
     );
+
     if (data.commits.records.length === 0) {
       lines.push("  (none)");
     } else {
@@ -305,6 +344,7 @@ export function renderBranchContextText(
         lines.push(
           `${marker} ${safe(commit.shortHash)} ${commit.relativeTime} - ${safe(commit.subject)}`,
         );
+
         for (const file of commit.files)
           lines.push(`    ${formatFileChange(file)}`);
       }
@@ -312,6 +352,7 @@ export function renderBranchContextText(
   }
 
   const branchDiff = data.diffs?.branch;
+
   if (branchDiff) {
     lines.push("");
     lines.push(
@@ -326,11 +367,13 @@ export function renderBranchContextText(
 
   if (data.warnings.length) {
     lines.push("");
+
     for (const warning of data.warnings)
       lines.push(styler.warn(`! ${safe(warning)}`));
   }
 
   const hint = formatHint(data);
+
   if (hint) {
     lines.push("");
     lines.push(styler.markdown(hint));
@@ -350,6 +393,7 @@ function formatHint(data: BranchContextData): string | null {
 
   const notes: string[] = [];
   const range = data.commits?.range;
+
   if (range?.kind === "branch") {
     notes.push(
       `Run \`context git --branch-diff\` for the full diff vs ${safe(range.sinceRef)}, or --diff for the working-tree diff.`,
@@ -361,24 +405,34 @@ function formatHint(data: BranchContextData): string | null {
   }
 
   const pr = data.pullRequest;
+
   if (pr) {
     const missing: string[] = [];
+
     if (pr.comments === undefined) missing.push("--comments");
+
     if (pr.reviews === undefined) missing.push("--reviews");
+
     if (pr.labels === undefined) missing.push("--labels");
+
     if (pr.checks === undefined) missing.push("--checks");
+
     if (missing.length) {
-      const list =
-        missing.length === 1
-          ? missing[0]
-          : missing.length === 2
-            ? `${missing[0]} or ${missing[1]}`
-            : `${missing.slice(0, -1).join(", ")}, or ${missing[missing.length - 1]}`;
+      const list = Match.value(missing.length).pipe(
+        Match.when(1, () => missing[0]),
+        Match.when(2, () => `${missing[0]} or ${missing[1]}`),
+        Match.orElse(
+          () =>
+            `${missing.slice(0, -1).join(", ")}, or ${missing[missing.length - 1]}`,
+        ),
+      );
+
       notes.push(`Add ${list} for more PR detail.`);
     }
   }
 
   notes.push("Use --json for the branch-context plugin payload.");
   notes.push("`context git --help` lists all flags.");
+
   return notes.join("\n");
 }

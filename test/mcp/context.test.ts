@@ -51,6 +51,7 @@ describe("MCP context contracts", () => {
       Effect.gen(function* () {
         yield* registerContextTools;
         yield* registerContextResources;
+
         return yield* McpServer.McpServer;
       }).pipe(Effect.provide(McpTestLayer)),
     );
@@ -58,6 +59,7 @@ describe("MCP context contracts", () => {
     expect(registry.tools.map(({ tool }) => tool.name)).toEqual(
       mcpTools.map((tool) => tool.name),
     );
+
     for (const { tool } of registry.tools) {
       const documented = mcpTools.find((item) => item.name === tool.name);
       expect(documented).toBeDefined();
@@ -65,6 +67,7 @@ describe("MCP context contracts", () => {
         Object.keys(documented?.parameters ?? {}),
       );
     }
+
     expect(registry.resources.map(({ resource }) => resource.uri)).toEqual([
       "context://git",
       "context://stack",

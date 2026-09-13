@@ -8,6 +8,7 @@ const truncationSchema = Schema.Struct({
   path: Schema.String,
   retained: Schema.Number,
 });
+
 const pullRequestSchema = Schema.Struct({
   description: Schema.optionalKey(Schema.String),
   labels: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -15,6 +16,7 @@ const pullRequestSchema = Schema.Struct({
   reviews: Schema.optionalKey(Schema.Array(Schema.Unknown)),
   checks: Schema.optionalKey(Schema.String),
 });
+
 const payloadSchema = Schema.fromJsonString(
   Schema.Struct({
     inRepo: Schema.Boolean,
@@ -24,6 +26,7 @@ const payloadSchema = Schema.fromJsonString(
     truncations: Schema.Array(truncationSchema),
   }),
 );
+
 const decodePayload = Schema.decodeUnknownSync(payloadSchema);
 
 function context(
@@ -82,9 +85,11 @@ describe("renderBranchContextJson", () => {
       range: { args: ["-n", "10", "HEAD"], kind: "recent" as const },
       records: [commit],
     };
+
     const withoutScope = decodePayload(
       renderBranchContextJson(context({ commits })),
     );
+
     const defaultScope = decodePayload(
       renderBranchContextJson(
         context({
@@ -93,6 +98,7 @@ describe("renderBranchContextJson", () => {
         }),
       ),
     );
+
     const collectedScope = decodePayload(
       renderBranchContextJson(
         context({
@@ -121,6 +127,7 @@ describe("renderBranchContextJson", () => {
         }),
       ),
     );
+
     const empty = decodePayload(
       renderBranchContextJson(
         context({
@@ -139,6 +146,7 @@ describe("renderBranchContextJson", () => {
 
     expect(omitted.pullRequest).not.toBeNull();
     expect(empty.pullRequest).not.toBeNull();
+
     if (omitted.pullRequest === null || empty.pullRequest === null) return;
 
     expect(omitted.pullRequest).not.toHaveProperty("description");
@@ -166,6 +174,7 @@ describe("renderBranchContextJson", () => {
         },
       }),
     );
+
     const payload = decodePayload(rendered);
 
     expect(rendered.length).toBeLessThanOrEqual(CHAR_LIMITS.jsonOutput);
@@ -281,6 +290,7 @@ describe("renderBranchContextJson", () => {
     };
 
     const rendered = renderBranchContextJson(data);
+
     const payload = Schema.decodeUnknownSync(
       Schema.fromJsonString(
         Schema.Struct({
@@ -298,6 +308,7 @@ describe("renderBranchContextJson", () => {
         }),
       ),
     )(rendered);
+
     expect(rendered.length).toBeLessThanOrEqual(CHAR_LIMITS.jsonOutput);
     expect(payload.branchMetadata.remotes).toHaveLength(50);
     expect(payload.branchMetadata.remoteDetails).toHaveLength(10);

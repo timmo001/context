@@ -24,6 +24,7 @@ function usageMessage(message: string): string {
 
 function warnInertJsonFlags(flags: readonly string[]) {
   if (flags.length === 0) return Effect.void;
+
   return Effect.sync(() =>
     console.error(
       `[context git] ${flags.join(" and ")} ${flags.length === 1 ? "is" : "are"} text-only and ignored with --json.`,
@@ -33,10 +34,12 @@ function warnInertJsonFlags(flags: readonly string[]) {
 
 function runGit(args: ParsedCliArgs) {
   const invocation = gitCliInvocation(args);
+
   return Effect.promise(() => import("./git/commands/Context.js")).pipe(
     Effect.flatMap(
       ({ gitContextOptions, gitContextRaw, gitContextRawJson }) => {
         const options = gitContextOptions(invocation.options);
+
         return warnInertJsonFlags(invocation.inertJsonFlags).pipe(
           Effect.andThen(
             invocation.json
@@ -54,6 +57,7 @@ function runStack(args: ParsedCliArgs) {
     Effect.flatMap(
       ({ stackContextOptions, stackContextRaw, stackContextRawJson }) => {
         const options = stackContextOptions({ root: args.positionals[0] });
+
         return hasOption(args, "--json")
           ? stackContextRawJson(options)
           : stackContextRaw(options, hasOption(args, "--plain"));
@@ -64,6 +68,7 @@ function runStack(args: ParsedCliArgs) {
 
 function runCompletions(args: ParsedCliArgs) {
   const shell = args.positionals[0] ?? "zsh";
+
   if (!isCompletionShell(shell)) {
     return Effect.fail(
       new UsageError({
@@ -71,6 +76,7 @@ function runCompletions(args: ParsedCliArgs) {
       }),
     );
   }
+
   return Effect.sync(() => process.stdout.write(renderCompletions(shell)));
 }
 
@@ -78,6 +84,7 @@ function runCommand(args: ParsedCliArgs) {
   if (!args.command) {
     return Effect.sync(() => console.log(renderHelp()));
   }
+
   if (args.help) {
     return Effect.sync(() => console.log(renderHelp(args.command?.name)));
   }
@@ -107,6 +114,7 @@ function runCommand(args: ParsedCliArgs) {
 function reportCliCause(cause: Cause.Cause<unknown>) {
   if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
   const error = Cause.squash(cause);
+
   return Effect.sync(() => {
     console.error(
       error instanceof UsageError

@@ -8,10 +8,13 @@ export function writeText(text: string): Effect.Effect<void> {
 /** Format an unknown command error for CLI output. */
 export function formatCommandError(cause: unknown): string {
   if (cause instanceof Error) return cause.message;
+
   if (Predicate.hasProperty(cause, "message")) {
     const message = cause.message;
+
     if (Predicate.isString(message) && message.length > 0) return message;
   }
+
   return String(cause);
 }
 

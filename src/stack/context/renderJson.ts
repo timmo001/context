@@ -23,11 +23,14 @@ function truncateUtf8(value: string, limit: number): string {
   if (utf8Bytes(value) <= limit) return value;
   let low = 0;
   let high = value.length;
+
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
+
     if (utf8Bytes(value.slice(0, middle)) <= limit) low = middle;
     else high = middle - 1;
   }
+
   return value.slice(0, low).replace(/[\uD800-\uDBFF]$/, "");
 }
 
@@ -41,10 +44,12 @@ function addTruncation(
       entry.limit === truncation.limit &&
       entry.subject === truncation.subject,
   );
+
   if (existing) {
     if (truncation.observed !== undefined) {
       existing.observed = Math.max(existing.observed ?? 0, truncation.observed);
     }
+
     if (truncation.omitted !== undefined) {
       existing.omitted = (existing.omitted ?? 0) + truncation.omitted;
     }
@@ -69,12 +74,14 @@ function capList<T>(
       subject,
     });
   }
+
   return values.slice(0, limit);
 }
 
 function boundedValue(value: string, truncations: MutableTruncation[]): string {
   const escaped = escapeTextControls(value);
   const observed = utf8Bytes(escaped);
+
   if (observed <= STACK_LIMITS.outputValueBytes) return escaped;
   addTruncation(truncations, {
     reason: "outputValueBytes",
@@ -82,6 +89,7 @@ function boundedValue(value: string, truncations: MutableTruncation[]): string {
     observed,
     omitted: observed - STACK_LIMITS.outputValueBytes,
   });
+
   return truncateUtf8(escaped, STACK_LIMITS.outputValueBytes);
 }
 
@@ -94,6 +102,7 @@ function capTruncations(
       (a.subject ?? "").localeCompare(b.subject ?? "") ||
       a.limit - b.limit,
   );
+
   if (ordered.length <= STACK_LIMITS.truncationReasons) return ordered;
   const kept = ordered.slice(0, STACK_LIMITS.truncationReasons - 1);
   kept.push({
@@ -102,6 +111,7 @@ function capTruncations(
     observed: ordered.length,
     omitted: ordered.length - STACK_LIMITS.truncationReasons + 1,
   });
+
   return kept;
 }
 
@@ -109,6 +119,7 @@ function capTruncations(
 export function renderStackContextJson(data: StackContextData): string {
   const truncations: MutableTruncation[] = [];
   const value = (text: string) => boundedValue(text, truncations);
+
   for (const entry of data.truncations) {
     addTruncation(truncations, {
       ...entry,
@@ -123,6 +134,7 @@ export function renderStackContextJson(data: StackContextData): string {
     truncations,
   ).map((language) => {
     const name = value(language.name);
+
     return {
       ...language,
       name,
@@ -135,6 +147,7 @@ export function renderStackContextJson(data: StackContextData): string {
       ).map(value),
     };
   });
+
   const ecosystems = capList(
     data.ecosystems,
     STACK_LIMITS.ecosystems,
@@ -142,6 +155,7 @@ export function renderStackContextJson(data: StackContextData): string {
     truncations,
   ).map((ecosystem) => {
     const name = value(ecosystem.name);
+
     return {
       ...ecosystem,
       name,
@@ -154,6 +168,7 @@ export function renderStackContextJson(data: StackContextData): string {
       ).map(value),
     };
   });
+
   const tooling = capList(
     data.tooling,
     STACK_LIMITS.tooling,
@@ -161,6 +176,7 @@ export function renderStackContextJson(data: StackContextData): string {
     truncations,
   ).map((tool) => {
     const name = value(tool.name);
+
     return {
       ...tool,
       name,
@@ -173,6 +189,7 @@ export function renderStackContextJson(data: StackContextData): string {
       ).map(value),
     };
   });
+
   const frameworks = capList(
     data.frameworks,
     STACK_LIMITS.frameworks,
@@ -183,6 +200,7 @@ export function renderStackContextJson(data: StackContextData): string {
     name: value(framework.name),
     via: value(framework.via),
   }));
+
   const warnings = capList(
     data.warnings,
     STACK_LIMITS.warnings,
@@ -201,8 +219,10 @@ export function renderStackContextJson(data: StackContextData): string {
     frameworks,
     warnings,
   };
+
   const rendered = JSON.stringify(payload);
   const observed = utf8Bytes(rendered);
+
   if (observed <= STACK_LIMITS.jsonOutputBytes) return rendered;
 
   const fallbackTruncations = [...truncations];
@@ -212,6 +232,7 @@ export function renderStackContextJson(data: StackContextData): string {
     observed,
     omitted: observed - STACK_LIMITS.jsonOutputBytes,
   });
+
   for (const [reason, count] of [
     ["languagesOutput", languages.length],
     ["ecosystemsOutput", ecosystems.length],
@@ -228,6 +249,7 @@ export function renderStackContextJson(data: StackContextData): string {
       });
     }
   }
+
   return JSON.stringify({
     root: truncateUtf8(
       escapeTextControls(data.root),

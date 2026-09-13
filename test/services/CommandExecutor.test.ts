@@ -18,6 +18,7 @@ function run(args: readonly string[], opts?: CommandRunOptions) {
   return Effect.runPromise(
     Effect.gen(function* () {
       const executor = yield* CommandExecutor;
+
       return yield* executor.run(process.execPath, [helper, ...args], opts);
     }).pipe(Effect.provide(CommandExecutor.layer)),
   );
@@ -27,6 +28,7 @@ function runFailure(args: readonly string[], opts?: CommandRunOptions) {
   return Effect.runPromise(
     Effect.gen(function* () {
       const executor = yield* CommandExecutor;
+
       return yield* executor
         .run(process.execPath, [helper, ...args], opts)
         .pipe(
@@ -46,6 +48,7 @@ function exitCodeFailure(
   return Effect.runPromise(
     Effect.gen(function* () {
       const executor = yield* CommandExecutor;
+
       return yield* executor
         .exitCode(process.execPath, [helper, ...args], opts)
         .pipe(
@@ -62,6 +65,7 @@ function exitCode(args: readonly string[], opts?: CommandExitCodeOptions) {
   return Effect.runPromise(
     Effect.gen(function* () {
       const executor = yield* CommandExecutor;
+
       return yield* executor.exitCode(
         process.execPath,
         [helper, ...args],
@@ -75,6 +79,7 @@ function spawnFailure(command: string) {
   return Effect.runPromise(
     Effect.gen(function* () {
       const executor = yield* CommandExecutor;
+
       return yield* executor.run(command, []).pipe(Effect.flip);
     }).pipe(Effect.provide(CommandExecutor.layer)),
   );
@@ -83,6 +88,7 @@ function spawnFailure(command: string) {
 describe("CommandExecutor", () => {
   test("concurrently drains large stdout and stderr", async () => {
     const bytes = 2 * 1024 * 1024;
+
     const stdout = await run(["dual", String(bytes)], {
       timeoutMs: 5_000,
       maxOutputBytes: bytes * 2,
@@ -110,10 +116,12 @@ describe("CommandExecutor", () => {
 
   test("terminates commands when their effect is cancelled", async () => {
     const marker = join(tmpdir(), `context-command-${crypto.randomUUID()}`);
+
     try {
       await Effect.runPromise(
         Effect.gen(function* () {
           const executor = yield* CommandExecutor;
+
           return yield* executor
             .run(process.execPath, [helper, "delayed-file", marker])
             .pipe(
@@ -135,6 +143,7 @@ describe("CommandExecutor", () => {
 
   test("terminates commands at the aggregate output cap", async () => {
     const maxOutputBytes = 64 * 1024;
+
     const error = await runFailure(["stdout", String(1024 * 1024)], {
       maxOutputBytes,
     });
@@ -169,8 +178,8 @@ describe("CommandExecutor", () => {
     const command = `context-command-${crypto.randomUUID()}`;
     const error = await spawnFailure(command);
 
+    expect(error).toHaveProperty("_tag", "CommandError");
     expect(error).toMatchObject({
-      _tag: "CommandError",
       command,
       exitCode: -1,
       reason: "spawn",
@@ -181,6 +190,7 @@ describe("CommandExecutor", () => {
 
   test("forwards the working directory", async () => {
     const directory = await mkdtemp(join(tmpdir(), "context-command-cwd-"));
+
     try {
       expect(await run(["cwd"], { cwd: directory })).toBe(directory);
     } finally {

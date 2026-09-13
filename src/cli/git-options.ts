@@ -16,7 +16,9 @@ export function gitCliInvocation(args: ParsedCliArgs): GitCliInvocation {
   const diff = hasOption(args, "--diff");
   const branchDiff = hasOption(args, "--branch-diff");
   const inertJsonFlags: InertJsonFlag[] = [];
+
   if (json && diff) inertJsonFlags.push("--diff");
+
   if (json && branchDiff) inertJsonFlags.push("--branch-diff");
 
   return {

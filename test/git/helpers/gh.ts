@@ -3,7 +3,7 @@ import {
   type GhOptions,
   type GhOutput,
 } from "@timmo001/effect-gh";
-import { Deferred, Effect, Layer, Sink, Stream } from "effect";
+import { Deferred, Effect, Layer, Predicate, Sink, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { GitHub } from "../../../src/git/services/GitHub.js";
 
@@ -19,14 +19,16 @@ export const ghFixture = Effect.fn("test.ghFixture")(function* (
   const spawned = yield* Deferred.make<void>();
   const commands: ChildProcess.StandardCommand[] = [];
   let releases = 0;
+
   const spawn: ChildProcessSpawner.ChildProcessSpawner["Service"]["spawn"] = (
     command,
   ) =>
     Effect.acquireRelease(
       Effect.sync(() => {
-        if (command._tag !== "StandardCommand")
+        if (!Predicate.isTagged(command, "StandardCommand"))
           throw new Error("Unexpected pipeline");
         commands.push(command);
+
         return ChildProcessSpawner.makeHandle({
           pid: ChildProcessSpawner.ProcessId(1),
           exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
@@ -47,6 +49,7 @@ export const ghFixture = Effect.fn("test.ghFixture")(function* (
           releases++;
         }),
     );
+
   return {
     commands,
     spawned,
@@ -84,6 +87,7 @@ export async function makeGitHub(run: (args: readonly string[]) => GhOutput) {
     Effect.gen(function* () {
       const fixture = yield* ghFixture((args) => {
         const output = run(args);
+
         return {
           stdout: textStream(output.stdout),
           stderr: textStream(output.stderr),
@@ -92,6 +96,7 @@ export async function makeGitHub(run: (args: readonly string[]) => GhOutput) {
           ),
         };
       });
+
       return yield* GitHub.pipe(Effect.provide(fixture.layer));
     }),
   );

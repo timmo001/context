@@ -33,10 +33,12 @@ const stringWithFallback = Schema.String.pipe(
   Schema.catchDecoding(() => Effect.succeed(Option.some(""))),
   Schema.withDecodingDefaultKey(Effect.succeed("")),
 );
+
 const booleanWithFallback = Schema.Boolean.pipe(
   Schema.catchDecoding(() => Effect.succeed(Option.some(false))),
   Schema.withDecodingDefaultKey(Effect.succeed(false)),
 );
+
 const jsonArrayWithFallback = Schema.Array(Schema.Json).pipe(
   Schema.catchDecoding(() => Effect.succeed(Option.some([]))),
   Schema.withDecodingDefaultKey(Effect.succeed([])),
@@ -59,21 +61,25 @@ const GitHubPullRequest = Schema.Struct({
 });
 
 const GitHubAuthor = Schema.Struct({ login: stringWithFallback });
+
 const authorWithFallback = GitHubAuthor.pipe(
   Schema.catchDecoding(() => Effect.succeed(Option.some({ login: "" }))),
   Schema.withDecodingDefaultKey(Effect.succeed({ login: "" })),
 );
+
 const GitHubComment = Schema.Struct({
   author: authorWithFallback,
   createdAt: stringWithFallback,
   body: stringWithFallback,
 });
+
 const GitHubReview = Schema.Struct({
   author: authorWithFallback,
   state: stringWithFallback,
   submittedAt: stringWithFallback,
   body: stringWithFallback,
 });
+
 const GitHubLabel = Schema.Struct({ name: stringWithFallback });
 
 type GitHubPullRequestInput = typeof GitHubPullRequest.Type;
@@ -84,7 +90,9 @@ interface TextBudget {
 
 function warningDetail(value: string): string {
   const trimmed = value.trim();
+
   if (trimmed.length <= CHAR_LIMITS.warning) return trimmed;
+
   return `${trimmed.slice(0, CHAR_LIMITS.warning)} [TRUNCATED ${trimmed.length - CHAR_LIMITS.warning} CHARS]`;
 }
 
@@ -101,7 +109,9 @@ function boundedText(
   budget?: TextBudget,
 ): string {
   const retained = Math.min(max, budget?.remaining ?? max, value.length);
+
   if (budget) budget.remaining -= retained;
+
   if (retained < value.length) {
     truncations.push({
       path,
@@ -110,6 +120,7 @@ function boundedText(
       retained,
     });
   }
+
   return value.slice(0, retained);
 }
 
@@ -127,6 +138,7 @@ function authorLogin(
     truncations,
     budget,
   );
+
   return login || "(unknown)";
 }
 
@@ -136,8 +148,10 @@ function parseSummary(
   truncations: TruncationNotice[],
 ): PullRequestSummary | null {
   const number = record.number;
+
   if (!Number.isSafeInteger(number) || number <= 0) return null;
   const commentCount = record.comments.length;
+
   return {
     number,
     state: boundedText(
@@ -195,7 +209,9 @@ function parseComments(
       onSome: (comment) => [comment],
     }),
   );
+
   const retained = records.slice(0, PR_LIMITS.comments);
+
   if (retained.length < records.length) {
     truncations.push({
       path: "comments",
@@ -204,7 +220,9 @@ function parseComments(
       retained: retained.length,
     });
   }
+
   const budget = { remaining: PR_LIMITS.collectionText };
+
   return retained.map((comment, index) => ({
     author: authorLogin(
       comment.author,
@@ -240,7 +258,9 @@ function parseReviews(
       onSome: (review) => [review],
     }),
   );
+
   const retained = records.slice(0, PR_LIMITS.reviews);
+
   if (retained.length < records.length) {
     truncations.push({
       path: "reviews",
@@ -249,7 +269,9 @@ function parseReviews(
       retained: retained.length,
     });
   }
+
   const budget = { remaining: PR_LIMITS.collectionText };
+
   return retained.map((review, index) => ({
     author: authorLogin(
       review.author,
@@ -292,7 +314,9 @@ function parseLabels(
       onSome: (label) => [label],
     }),
   );
+
   const retained = records.slice(0, PR_LIMITS.labels);
+
   if (retained.length < records.length) {
     truncations.push({
       path: "labels",
@@ -301,8 +325,11 @@ function parseLabels(
       retained: retained.length,
     });
   }
+
   const budget = { remaining: PR_LIMITS.collectionText };
+
   return retained
+    .values()
     .map((label, index) =>
       boundedText(
         label.name,
@@ -312,7 +339,8 @@ function parseLabels(
         budget,
       ),
     )
-    .filter(Boolean);
+    .filter(Boolean)
+    .toArray();
 }
 
 /** Build the `--json` field list for `gh pr view` based on enabled sections. */
@@ -330,8 +358,11 @@ function prViewFields(options: BranchContextOptions): string {
     "body",
     "comments",
   ];
+
   if (options.labels) fields.push("labels");
+
   if (options.reviews) fields.push("reviews");
+
   return fields.join(",");
 }
 
@@ -348,6 +379,7 @@ export function collectPullRequest(
     if (!options.pullRequest) return { data: null, warnings: [] };
 
     const github = yield* GitHub;
+
     const viewResult = yield* github
       .json(["pr", "view", "--json", prViewFields(options)], {
         checkRateLimit: false,
@@ -363,9 +395,11 @@ export function collectPullRequest(
     if (!viewResult.ok) {
       // A missing PR is the common, expected case and not worth a warning.
       const stderr = viewResult.error.stderr.toLowerCase();
+
       if (stderr.includes("no pull requests found")) {
         return { data: null, warnings: [] };
       }
+
       return {
         data: null,
         warnings: [
@@ -382,18 +416,22 @@ export function collectPullRequest(
         warnings: ["Unable to read PR details: unexpected response."],
       };
     }
+
     const decoded = Schema.decodeUnknownOption(GitHubPullRequest)(
       viewResult.value,
     );
+
     if (Option.isNone(decoded)) {
       return {
         data: null,
         warnings: ["Unable to read PR details: required fields are missing."],
       };
     }
+
     const truncations: TruncationNotice[] = [];
     const record = decoded.value;
     const summary = parseSummary(record, truncations);
+
     if (!summary) {
       return {
         data: null,
@@ -404,6 +442,7 @@ export function collectPullRequest(
     const warnings: string[] = [];
 
     let checks: string | undefined;
+
     if (options.checks) {
       const checksResult = yield* github
         .run(["pr", "checks", String(summary.number)], {
@@ -416,6 +455,7 @@ export function collectPullRequest(
             onFailure: (error) => Effect.succeed({ ok: false as const, error }),
           }),
         );
+
       // `gh pr checks` exits non-zero when checks are pending or failing, so its
       // stdout is still useful; keep it and only warn when there is no output.
       if (checksResult.ok) {
@@ -423,8 +463,10 @@ export function collectPullRequest(
       } else {
         checks =
           checksResult.error.stdout.trim() || checksResult.error.stderr.trim();
+
         if (!checks) warnings.push("Unable to read PR checks.");
       }
+
       if (checks && checks.length > PR_LIMITS.checks) {
         truncations.push({
           path: "checks",
@@ -440,6 +482,7 @@ export function collectPullRequest(
       summary,
       truncations,
     };
+
     if (options.description) {
       data = {
         ...data,
@@ -451,21 +494,27 @@ export function collectPullRequest(
         ),
       };
     }
+
     if (options.labels) {
       data = { ...data, labels: parseLabels(record.labels, truncations) };
     }
+
     if (options.comments) {
       data = { ...data, comments: parseComments(record.comments, truncations) };
     }
+
     if (options.reviews) {
       data = { ...data, reviews: parseReviews(record.reviews, truncations) };
     }
+
     if (checks !== undefined) data = { ...data, checks };
+
     for (const truncation of truncations) {
       warnings.push(
         `Truncated PR ${truncation.path} from ${truncation.original} to ${truncation.retained} ${truncation.unit}.`,
       );
     }
+
     return { data, warnings };
   });
 }

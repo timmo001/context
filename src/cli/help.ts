@@ -17,6 +17,7 @@ function optionLabel(
   option: NonNullable<CliCommandSpec["options"]>[number],
 ): string {
   const names = option.short ? `${option.name}, ${option.short}` : option.name;
+
   return option.valueName ? `${names} <${option.valueName}>` : names;
 }
 
@@ -26,6 +27,7 @@ function renderAligned(
 ): string[] {
   if (rows.length === 0) return [];
   const width = Math.max(...rows.map(([label]) => label.length));
+
   return [
     `${title}:`,
     ...rows.map(
@@ -39,27 +41,34 @@ function commandLine(command: CliCommandSpec): string {
     command.arguments?.map((arg) =>
       arg.repeatable ? `[${arg.name}...]` : `<${arg.name}>`,
     ) ?? [];
+
   const options = command.options?.length ? " [options]" : "";
+
   return `${command.name}${options}${args.length ? ` ${args.join(" ")}` : ""}`;
 }
 
 function parseRows(lines: readonly string[]): readonly [string, string][] {
   return lines.map((line) => {
     const match = /^(\S+(?:\s+\S+)*)\s{2,}(.+)$/.exec(line.trimEnd());
+
     return match ? [match[1], match[2]] : [line, ""];
   });
 }
 
 function trimBlankTail(lines: string[]): string[] {
   while (lines[lines.length - 1] === "") lines.pop();
+
   return lines;
 }
 
 function renderCommand(command: CliCommandSpec): string {
   const lines: string[] = [usageFor(command), ""];
+
   if (command.description) lines.push(...command.description, "");
+
   if (command.modes)
     lines.push(...renderAligned("Modes", parseRows(command.modes)), "");
+
   if (command.commands) {
     lines.push(
       ...renderAligned(
@@ -72,6 +81,7 @@ function renderCommand(command: CliCommandSpec): string {
       "",
     );
   }
+
   if (command.options) {
     lines.push(
       ...renderAligned(
@@ -84,6 +94,7 @@ function renderCommand(command: CliCommandSpec): string {
       "",
     );
   }
+
   if (command.sections) {
     for (const section of command.sections) {
       lines.push(
@@ -93,11 +104,13 @@ function renderCommand(command: CliCommandSpec): string {
       );
     }
   }
+
   if (command.examples)
     lines.push(
       "Examples:",
       ...command.examples.map((example) => `  ${example}`),
     );
+
   return trimBlankTail(lines).join("\n");
 }
 
@@ -125,5 +138,6 @@ function renderRootHelp(): string {
 /** Render root or command-specific CLI help from the command registry. */
 export function renderHelp(commandName?: string): string {
   if (!commandName) return renderRootHelp();
+
   return renderCommand(getCliCommand(commandName) ?? getCliCommand("help")!);
 }

@@ -54,8 +54,10 @@ export class ToolRegistrar extends Context.Service<
     ToolRegistrar,
     Effect.gen(function* () {
       const server = yield* McpServer.McpServer;
+
       const register: ToolRegistrarService["register"] = (options) => {
         const decode = Schema.decodeEffect(options.parameters);
+
         return server.addTool({
           tool: new McpSchema.Tool({
             name: options.name,
@@ -87,6 +89,7 @@ export class ToolRegistrar extends Context.Service<
             ),
         });
       };
+
       return { register };
     }),
   );

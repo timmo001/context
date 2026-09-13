@@ -42,7 +42,9 @@ const CommandHelpParams = Schema.Struct({
 
 function metadata(name: string) {
   const match = mcpTools.find((tool) => tool.name === name);
+
   if (!match) throw new Error(`Missing MCP metadata for ${name}`);
+
   return match;
 }
 
