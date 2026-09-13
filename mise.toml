@@ -99,16 +99,19 @@ run = "bun run preview"
 
 [tasks."docs:gen:cli"]
 description = "Regenerate CLI command reference"
+depends = ["install"]
 dir = "docs"
 run = "bun run gen:cli"
 
 [tasks."docs:gen:mcp"]
 description = "Regenerate MCP tool reference"
+depends = ["install"]
 dir = "docs"
 run = "bun run gen:mcp"
 
 [tasks."docs:gen"]
 description = "Regenerate generated docs"
+depends = ["install"]
 dir = "docs"
 run = "bun run gen"
 
