@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@effect/platform-node": "4.0.0-rc.115",
-    "@timmo001/effect-gh": "github:timmo001/effect-gh#69249b6d3871616b9a35edbf41969dd2bb07d81a",
+    "@timmo001/effect-gh": "github:timmo001/effect-gh#87f2afc9cce7c3831b42e7a0c4b1db5b1d029b13",
     "effect": "4.0.0-rc.115"
   },
   "devDependencies": {
