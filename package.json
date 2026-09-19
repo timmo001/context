@@ -16,7 +16,7 @@
     "prepare": "effect-language-service patch && effect-tsgo patch --typescript"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-rc.115",
+    "@effect/platform-node": "4.0.0-rc.116",
     "@timmo001/effect-gh": "github:timmo001/effect-gh#57f461a6627f6ca601ad7a16c20f2fcb4562de86",
     "effect": "4.0.0-rc.115"
   },
