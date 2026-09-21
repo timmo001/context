@@ -21,7 +21,7 @@ run = "bun run build"
 [tasks.typecheck]
 description = "Type-check the context source"
 depends = ["install"]
-run = "bun ./node_modules/@typescript/native/bin/tsc --noEmit"
+run = "bun ./node_modules/typescript/bin/tsc --noEmit"
 
 [tasks.test]
 description = "Run context tests"
