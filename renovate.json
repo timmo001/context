@@ -1,45 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended",
-    "helpers:pinGitHubActionDigests",
-    "group:monorepos",
-    "group:recommended"
-  ],
-  "dependencyDashboard": true,
-  "labels": ["dependencies"],
-  "minimumReleaseAge": "1 day",
+  "extends": ["github>timmo001/renovate-config"],
   "packageRules": [
-    {
-      "description": "Update the Effect runtime and integrations together.",
-      "matchPackageNames": ["effect", "@effect/platform-*", "@effect/vitest"],
-      "groupName": "Effect",
-      "groupSlug": "effect"
-    },
-    {
-      "description": "Use the shorter release delay for Effect dependencies.",
-      "matchPackageNames": [
-        "effect",
-        "@effect/platform-*",
-        "@effect/vitest",
-        "@effect/tsgo"
-      ],
-      "minimumReleaseAge": "2 hours"
-    },
-    {
-      "description": "Update first-party dependencies without a release delay.",
-      "matchPackageNames": [
-        "@timmo001/**",
-        "timmo001/**",
-        "https://github.com/timmo001/**"
-      ],
-      "minimumReleaseAge": null
-    },
-    {
-      "description": "Group GitHub Actions.",
-      "groupName": "github actions",
-      "matchManagers": ["github-actions"]
-    },
     {
       "description": "Keep the TypeScript SDK compatible with editor tooling and the Effect language service.",
       "matchDepNames": ["typescript"],
