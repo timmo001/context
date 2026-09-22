@@ -390,7 +390,12 @@ describe("GitHub", () => {
           .run(["pr", "view"], { checkRateLimit: false, retries: 1 })
           .pipe(
             Effect.provideService(Clock.Clock, {
-              ...clock,
+              currentTimeMillisUnsafe: () => clock.currentTimeMillisUnsafe(),
+              currentTimeMillis: clock.currentTimeMillis,
+              currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
+              currentTimeNanos: clock.currentTimeNanos,
+              monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+              monotonicTimeNanos: clock.monotonicTimeNanos,
               sleep: (duration) =>
                 Duration.toMillis(duration) === 1000
                   ? Deferred.succeed(retryStarted, undefined).pipe(

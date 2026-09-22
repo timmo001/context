@@ -264,7 +264,7 @@ describe("buildBranchContext", () => {
     await withRepository(async (repository) => {
       configureResolvedOrigin(repository);
 
-      await expect(
+      expect(
         collect(repository, repoExecutor(repository), unusedGitHub, {
           branchDiff: true,
         }),
@@ -290,7 +290,7 @@ describe("buildBranchContext", () => {
         return liveExecutor.run(cmd, args, opts);
       });
 
-      await expect(collect(repository, executor)).rejects.toThrow(
+      expect(collect(repository, executor)).rejects.toThrow(
         "Unable to parse ahead/behind counts for 'origin/trunk'.",
       );
     });
@@ -466,7 +466,7 @@ describe("buildBranchContext", () => {
         return liveExecutor.run(cmd, args, opts);
       });
 
-      await expect(collect(repository, executor)).rejects.toThrow(
+      expect(collect(repository, executor)).rejects.toThrow(
         "git status --short --branch -z failed with exit 2: status failed",
       );
     });
@@ -490,7 +490,7 @@ describe("buildBranchContext", () => {
         return liveExecutor.run(cmd, args, opts);
       });
 
-      await expect(
+      expect(
         collect(repository, executor, unusedGitHub, {
           status: false,
           diff: true,
@@ -517,7 +517,7 @@ describe("buildBranchContext", () => {
         return liveExecutor.run(cmd, args, opts);
       });
 
-      await expect(collect(repository, executor)).rejects.toThrow(
+      expect(collect(repository, executor)).rejects.toThrow(
         "git log --name-status -z",
       );
     });

@@ -1,7 +1,11 @@
 import recommendedEffect from "@timmo001/oxlint-rules/configs/recommended-effect";
+import { defineConfig } from "oxlint";
 
-export default {
+export default defineConfig({
   extends: [recommendedEffect],
+  options: {
+    typeAware: true,
+  },
   ignorePatterns: [
     ".agent/**",
     ".agents/**",
@@ -15,4 +19,4 @@ export default {
     ".roo/**",
     ".windsurf/**",
   ],
-};
+});
