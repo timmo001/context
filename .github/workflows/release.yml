@@ -63,8 +63,7 @@ jobs:
       !github.event.release.prerelease
     permissions:
       contents: write
-    uses: >- # master
-      timmo001/workflows/.github/workflows/release-bun-cli-linux.yml@405726c0d3241169dc241682ffa91176f9a82916
+    uses: timmo001/workflows/.github/workflows/release-bun-cli-linux.yml@0f94251168336b74fadf271a955d24d1de4de343 # 20260927.1
     with:
       binary-name: context
       package-name: context
@@ -115,7 +114,7 @@ jobs:
   publish-arch:
     name: Publish Arch package (context-bin)
     needs: prepare-aur
-    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@cef23eb35e34cbf700318426c754e8d77a6167e1 # master
+    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@0f94251168336b74fadf271a955d24d1de4de343 # 20260927.1
     with:
       package-name: context-bin
       package-files-artifact-name: aur-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
@@ -126,8 +125,7 @@ jobs:
   publish-aur:
     name: Publish AUR (context-bin)
     needs: prepare-aur
-    uses: >- # master
-      timmo001/workflows/.github/workflows/publish-aur.yml@405726c0d3241169dc241682ffa91176f9a82916
+    uses: timmo001/workflows/.github/workflows/publish-aur.yml@0f94251168336b74fadf271a955d24d1de4de343 # 20260927.1
     with:
       package-name: context-bin
       artifact-name: aur-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
