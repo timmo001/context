@@ -4,7 +4,7 @@ import {
   type GhOutput,
 } from "@timmo001/effect-gh";
 import { Deferred, Effect, Layer, Predicate, Sink, Stream } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { GitHub } from "../../../src/git/services/GitHub.js";
 
 export const textStream = (text: string) =>

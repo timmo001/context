@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { NodeServices } from "@effect/platform-node";
 import { layer as ghLayer } from "@timmo001/effect-gh";
 import { Effect, Layer } from "effect";
-import { McpServer } from "effect/unstable/ai";
+import { McpServer } from "effect/ai";
 import { GitHub } from "../../src/git/services/GitHub.js";
 import { registerContextResources } from "../../src/mcp/resources/context.js";
 import {
