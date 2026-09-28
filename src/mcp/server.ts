@@ -1,6 +1,6 @@
 import { Effect, Layer, Logger } from "effect";
 import { NodeStdio } from "@effect/platform-node";
-import { McpProtocol, McpServer } from "effect/unstable/ai";
+import { McpProtocol, McpServer } from "effect/ai";
 import packageJson from "../../package.json" with { type: "json" };
 import { registerContextResources } from "./resources/context.js";
 import { registerContextTools } from "./tools/context.js";

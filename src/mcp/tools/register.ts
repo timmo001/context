@@ -1,5 +1,5 @@
 import { Cause, Context, Effect, Layer, Schema } from "effect";
-import { McpSchema, McpServer, Tool } from "effect/unstable/ai";
+import { McpSchema, McpServer, Tool } from "effect/ai";
 import { formatCommandError } from "../../lib/rows.js";
 
 /** MCP tool annotations for a read-only, closed-world, idempotent tool. */
