@@ -1,15 +1,7 @@
 /** Git-aware, bounded stack detection and manifest parsing. */
-import {
-  closeSync,
-  constants,
-  fstatSync,
-  lstatSync,
-  openSync,
-  readSync,
-  statSync,
-} from "node:fs";
 import { basename, extname, join } from "node:path";
-import { Schema } from "effect";
+import { Effect, Fiber, FileSystem, Option, Schema, Stream } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { DEFAULT_COMMAND_TIMEOUT_MS } from "../../lib/env.js";
 import {
   CONFIG_TOOLING,
@@ -106,18 +98,14 @@ interface PackageJsonManifest {
   readonly packageManager?: Schema.Json;
 }
 
-const PackageJsonManifestSchema: Schema.Codec<
-  PackageJsonManifest,
-  PackageJsonManifest,
-  never,
-  never
-> = Schema.Struct({
-  dependencies: Schema.optional(Schema.Json),
-  devDependencies: Schema.optional(Schema.Json),
-  peerDependencies: Schema.optional(Schema.Json),
-  optionalDependencies: Schema.optional(Schema.Json),
-  packageManager: Schema.optional(Schema.Json),
-});
+const PackageJsonManifestSchema: Schema.Codec<PackageJsonManifest> =
+  Schema.Struct({
+    dependencies: Schema.optional(Schema.Json),
+    devDependencies: Schema.optional(Schema.Json),
+    peerDependencies: Schema.optional(Schema.Json),
+    optionalDependencies: Schema.optional(Schema.Json),
+    packageManager: Schema.optional(Schema.Json),
+  });
 
 const PackageDependencyBlockSchema = Schema.Record(Schema.String, Schema.Json);
 
@@ -222,10 +210,8 @@ function decode(stdout: Uint8Array): string {
   return new TextDecoder().decode(stdout).trim();
 }
 
-function gitFailure(result: Bun.SyncSubprocess): string {
-  const stderr = result.stderr ? decode(result.stderr) : "";
-
-  return stderr || `git exited ${result.exitCode}`;
+function gitFailure(result: GitRun): string {
+  return result.stderr || `git exited ${result.exitCode}`;
 }
 
 function completeNullTerminatedPaths(stdout: Uint8Array): string[] {
@@ -237,36 +223,126 @@ function completeNullTerminatedPaths(stdout: Uint8Array): string[] {
   return text.slice(0, lastTerminator).split("\0").filter(Boolean);
 }
 
-function gitFiles(root: string): GitFileList {
-  try {
-    const inside = Bun.spawnSync(
-      ["git", "rev-parse", "--is-inside-work-tree"],
-      {
+interface GitRun {
+  readonly stdout: Uint8Array;
+  readonly stderr: string;
+  readonly exitCode: number;
+  readonly outputTruncated: boolean;
+}
+
+function concatChunks(chunks: readonly Uint8Array[]): Uint8Array {
+  const bytes = new Uint8Array(
+    chunks.reduce((total, chunk) => total + chunk.byteLength, 0),
+  );
+
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return bytes;
+}
+
+const collectBounded = Effect.fnUntraced(function* <E>(
+  stream: Stream.Stream<Uint8Array, E>,
+  limit: number,
+) {
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  let truncated = false;
+
+  yield* stream.pipe(
+    Stream.runForEachWhile((chunk) =>
+      Effect.sync(() => {
+        const remaining = limit - bytes;
+
+        if (chunk.byteLength > remaining) {
+          chunks.push(chunk.slice(0, remaining));
+          bytes = limit;
+          truncated = true;
+
+          return false;
+        }
+
+        chunks.push(chunk);
+        bytes += chunk.byteLength;
+
+        return true;
+      }),
+    ),
+  );
+
+  return { bytes: concatChunks(chunks), truncated };
+});
+
+const runGit = Effect.fnUntraced(function* (
+  root: string,
+  args: readonly string[],
+  maxBytes: number,
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+  return yield* Effect.gen(function* () {
+    const child = yield* spawner.spawn(
+      ChildProcess.make("git", [...args], {
         cwd: root,
+        stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
-        maxBuffer: 65_536,
-        timeout: DEFAULT_COMMAND_TIMEOUT_MS,
-      },
+      }),
     );
 
-    if (inside.exitedDueToTimeout) {
+    const stderr = yield* Effect.forkScoped(
+      collectBounded(child.stderr, maxBytes),
+    );
+
+    const stdout = yield* collectBounded(child.stdout, maxBytes);
+
+    if (stdout.truncated) {
+      return {
+        stdout: stdout.bytes,
+        stderr: "",
+        exitCode: -1,
+        outputTruncated: true,
+      } satisfies GitRun;
+    }
+
+    return {
+      stdout: stdout.bytes,
+      stderr: decode((yield* Fiber.join(stderr)).bytes),
+      exitCode: yield* child.exitCode,
+      outputTruncated: false,
+    } satisfies GitRun;
+  }).pipe(Effect.scoped, Effect.timeoutOption(DEFAULT_COMMAND_TIMEOUT_MS));
+});
+
+const gitFiles = Effect.fnUntraced(
+  function* (root: string) {
+    const inside = yield* runGit(
+      root,
+      ["rev-parse", "--is-inside-work-tree"],
+      65_536,
+    );
+
+    if (Option.isNone(inside)) {
       return {
         ok: false,
         warning: `Git worktree detection timed out after ${DEFAULT_COMMAND_TIMEOUT_MS}ms.`,
-      };
+      } satisfies GitFileList;
     }
 
-    if (inside.exitCode !== 0 || decode(inside.stdout) !== "true") {
+    if (inside.value.exitCode !== 0 || decode(inside.value.stdout) !== "true") {
       return {
         ok: false,
         warning: `No readable Git worktree at '${root}'; stack context is unavailable.`,
-      };
+      } satisfies GitFileList;
     }
 
-    const listed = Bun.spawnSync(
+    const listed = yield* runGit(
+      root,
       [
-        "git",
         "ls-files",
         "-z",
         "--cached",
@@ -276,56 +352,49 @@ function gitFiles(root: string): GitFileList {
         "--",
         ".",
       ],
-      {
-        cwd: root,
-        stdout: "pipe",
-        stderr: "pipe",
-        maxBuffer: STACK_COLLECTION_LIMITS.gitFileListBytes,
-        timeout: DEFAULT_COMMAND_TIMEOUT_MS,
-      },
+      STACK_COLLECTION_LIMITS.gitFileListBytes,
     );
 
-    if (listed.exitedDueToTimeout) {
+    if (Option.isNone(listed)) {
       return {
         ok: false,
         warning: `Git file listing timed out after ${DEFAULT_COMMAND_TIMEOUT_MS}ms.`,
-      };
+      } satisfies GitFileList;
     }
 
-    if (listed.exitedDueToMaxBuffer) {
+    if (listed.value.outputTruncated) {
       return {
         ok: true,
-        files: completeNullTerminatedPaths(listed.stdout),
+        files: completeNullTerminatedPaths(listed.value.stdout),
         outputTruncated: true,
         observedBytes: Math.max(
-          listed.stdout.byteLength,
+          listed.value.stdout.byteLength,
           STACK_COLLECTION_LIMITS.gitFileListBytes + 1,
         ),
-      };
+      } satisfies GitFileList;
     }
 
-    if (listed.exitCode !== 0) {
+    if (listed.value.exitCode !== 0) {
       return {
         ok: false,
-        warning: `Could not list Git files: ${gitFailure(listed)}.`,
-      };
+        warning: `Could not list Git files: ${gitFailure(listed.value)}.`,
+      } satisfies GitFileList;
     }
 
     return {
       ok: true,
-      files: completeNullTerminatedPaths(listed.stdout),
+      files: completeNullTerminatedPaths(listed.value.stdout),
       outputTruncated: false,
-      observedBytes: listed.stdout.byteLength,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    return {
+      observedBytes: listed.value.stdout.byteLength,
+    } satisfies GitFileList;
+  },
+  Effect.catch((error) =>
+    Effect.succeed({
       ok: false,
-      warning: `Could not run git for stack context: ${message}.`,
-    };
-  }
-}
+      warning: `Could not run git for stack context: ${error.message}.`,
+    } satisfies GitFileList),
+  ),
+);
 
 function locationOf(relPath: string): string {
   const parts = relPath.split("/");
@@ -346,15 +415,29 @@ function withinDepth(segments: readonly string[], maxDepth: number): boolean {
   return segments.length - 1 <= maxDepth;
 }
 
-function isReadableRegularFile(root: string, rel: string): boolean {
-  try {
-    const stat = lstatSync(join(root, rel));
+const isSymbolicLink = Effect.fnUntraced(function* (path: string) {
+  const fs = yield* FileSystem.FileSystem;
 
-    return stat.isFile() && !stat.isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
+  return yield* fs.readLink(path).pipe(
+    Effect.as(true),
+    Effect.orElseSucceed(() => false),
+  );
+});
+
+const isReadableRegularFile = Effect.fnUntraced(function* (
+  root: string,
+  rel: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = join(root, rel);
+
+  if (yield* isSymbolicLink(path)) return false;
+
+  return yield* fs.stat(path).pipe(
+    Effect.map((info) => info.type === "File"),
+    Effect.orElseSucceed(() => false),
+  );
+});
 
 function isGithubWorkflow(
   segments: readonly string[],
@@ -454,12 +537,12 @@ function classifyFile(acc: WalkAccumulator, name: string, rel: string): void {
   censusFile(acc, name, rel);
 }
 
-function walk(
+const walk = Effect.fnUntraced(function* (
   root: string,
   options: StackContextOptions,
   files: readonly string[],
   state: CollectionState,
-): WalkAccumulator {
+) {
   const acc: WalkAccumulator = {
     langFiles: new Map(),
     langDirs: new Map(),
@@ -491,7 +574,7 @@ function walk(
   let fileCapObserved: number | undefined;
 
   for (const rel of candidates) {
-    if (!isReadableRegularFile(root, rel)) continue;
+    if (!(yield* isReadableRegularFile(root, rel))) continue;
 
     if (acc.scannedFiles >= options.maxFiles) {
       fileCapObserved = acc.scannedFiles + 1;
@@ -543,7 +626,7 @@ function walk(
   }
 
   return acc;
-}
+});
 
 function packageJsonData(text: string): PackageJsonData {
   const pkg = Schema.decodeUnknownSync(PackageJsonManifestSchema)(
@@ -590,25 +673,28 @@ function cacheEntry(
   return entry;
 }
 
-function readManifest(
+const readManifest = Effect.fnUntraced(function* (
   root: string,
   rel: string,
   cache: Map<string, ManifestCacheEntry>,
   state: CollectionState,
-): string | undefined {
+) {
   const entry = cacheEntry(cache, rel);
 
   if (entry.readAttempted) return entry.text;
   entry.readAttempted = true;
 
-  let descriptor: number | undefined;
+  const fs = yield* FileSystem.FileSystem;
+  const path = join(root, rel);
 
-  try {
-    const noFollow = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
-    descriptor = openSync(join(root, rel), constants.O_RDONLY | noFollow);
-    const stat = fstatSync(descriptor);
+  return yield* Effect.gen(function* () {
+    if (yield* isSymbolicLink(path)) return yield* Effect.fail("symbolic link");
 
-    if (!stat.isFile()) throw new TypeError("not a regular file");
+    const file = yield* fs.open(path, { flag: "r" });
+    const stat = yield* file.stat;
+    const size = Number(stat.size);
+
+    if (stat.type !== "File") return yield* Effect.fail("not a regular file");
 
     const remaining =
       STACK_COLLECTION_LIMITS.manifestTotalBytes - state.manifestBytesRead;
@@ -617,8 +703,8 @@ function readManifest(
       addTruncation(state, {
         reason: "manifestTotalReadBytes",
         limit: STACK_COLLECTION_LIMITS.manifestTotalBytes,
-        observed: state.manifestBytesRead + stat.size,
-        omitted: stat.size,
+        observed: state.manifestBytesRead + size,
+        omitted: size,
         subject: rel,
       });
       addWarning(
@@ -631,7 +717,7 @@ function readManifest(
 
     const limit = Math.min(STACK_COLLECTION_LIMITS.manifestBytes, remaining);
 
-    if (stat.size > limit) {
+    if (size > limit) {
       const totalBudgetApplied =
         limit !== STACK_COLLECTION_LIMITS.manifestBytes;
 
@@ -642,10 +728,8 @@ function readManifest(
         limit: totalBudgetApplied
           ? STACK_COLLECTION_LIMITS.manifestTotalBytes
           : STACK_COLLECTION_LIMITS.manifestBytes,
-        observed: totalBudgetApplied
-          ? state.manifestBytesRead + stat.size
-          : stat.size,
-        omitted: stat.size - limit,
+        observed: totalBudgetApplied ? state.manifestBytesRead + size : size,
+        omitted: size - limit,
         subject: rel,
       });
       addWarning(
@@ -656,8 +740,8 @@ function readManifest(
       return undefined;
     }
 
-    const bytes = Buffer.allocUnsafe(Math.min(limit + 1, stat.size + 1));
-    const read = readSync(descriptor, bytes, 0, bytes.length, 0);
+    const bytes = new Uint8Array(Math.min(limit + 1, size + 1));
+    const read = yield* file.read(bytes);
 
     if (read > limit) {
       addTruncation(state, {
@@ -679,97 +763,107 @@ function readManifest(
     entry.text = new TextDecoder().decode(bytes.subarray(0, read));
 
     return entry.text;
-  } catch {
-    addWarning(state, `Could not read ${rel}.`);
+  }).pipe(
+    Effect.scoped,
+    Effect.catch(() => {
+      addWarning(state, `Could not read ${rel}.`);
 
-    return undefined;
-  } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
-  }
-}
+      return Effect.void;
+    }),
+  );
+});
 
-function parsedPackageJson(
+const parsedPackageJson = Effect.fnUntraced(function* (
   root: string,
   rel: string,
   cache: Map<string, ManifestCacheEntry>,
   state: CollectionState,
-): PackageJsonData | undefined {
+) {
   const entry = cacheEntry(cache, rel);
 
   if (entry.packageJsonAttempted) return entry.packageJson;
   entry.packageJsonAttempted = true;
-  const text = readManifest(root, rel, cache, state);
+  const text = yield* readManifest(root, rel, cache, state);
 
   if (text === undefined) return undefined;
 
-  try {
-    entry.packageJson = packageJsonData(text);
+  entry.packageJson = yield* Effect.try(() => packageJsonData(text)).pipe(
+    Effect.orElseSucceed(() => {
+      addWarning(state, `Could not parse ${rel}.`);
 
-    return entry.packageJson;
-  } catch {
-    addWarning(state, `Could not parse ${rel}.`);
+      return undefined;
+    }),
+  );
 
-    return undefined;
+  return entry.packageJson;
+});
+
+function parseDependencies(
+  eco: string,
+  rel: string,
+  text: string,
+): readonly string[] {
+  const name = basename(rel);
+
+  if (eco === "go" && name === "go.mod") return parseGoModDependencies(text);
+
+  if (eco === "cargo" && name === "Cargo.toml") {
+    return parseCargoDependencies(text);
   }
+
+  if (eco !== "python") return [];
+
+  if (name === "pyproject.toml") return parsePyprojectDependencies(text);
+
+  if (REQUIREMENTS_FILE.test(name)) {
+    return parseRequirementsDependencies(text);
+  }
+
+  if (name === "Pipfile") return parsePipfileDependencies(text);
+
+  if (name === "setup.py") return parseSetupPyDependencies(text);
+
+  return [];
 }
 
-function manifestDependencies(
+const manifestDependencies = Effect.fnUntraced(function* (
   root: string,
   eco: string,
   rel: string,
   cache: Map<string, ManifestCacheEntry>,
   state: CollectionState,
-): readonly string[] {
+) {
   const entry = cacheEntry(cache, rel);
 
   if (entry.dependenciesAttempted) return entry.dependencies ?? [];
   entry.dependenciesAttempted = true;
-  const text = readManifest(root, rel, cache, state);
+  const text = yield* readManifest(root, rel, cache, state);
 
   if (text === undefined) return [];
 
-  try {
-    if (eco === "go" && basename(rel) === "go.mod") {
-      entry.dependencies = parseGoModDependencies(text);
-    } else if (eco === "cargo" && basename(rel) === "Cargo.toml") {
-      entry.dependencies = parseCargoDependencies(text);
-    } else if (eco === "python") {
-      const name = basename(rel);
+  entry.dependencies = yield* Effect.try(() =>
+    parseDependencies(eco, rel, text),
+  ).pipe(
+    Effect.orElseSucceed(() => {
+      addWarning(state, `Could not parse ${rel}.`);
 
-      if (name === "pyproject.toml") {
-        entry.dependencies = parsePyprojectDependencies(text);
-      } else if (REQUIREMENTS_FILE.test(name)) {
-        entry.dependencies = parseRequirementsDependencies(text);
-      } else if (name === "Pipfile") {
-        entry.dependencies = parsePipfileDependencies(text);
-      } else if (name === "setup.py") {
-        entry.dependencies = parseSetupPyDependencies(text);
-      } else {
-        entry.dependencies = [];
-      }
-    } else {
-      entry.dependencies = [];
-    }
+      return [];
+    }),
+  );
 
-    return entry.dependencies;
-  } catch {
-    addWarning(state, `Could not parse ${rel}.`);
-    entry.dependencies = [];
+  return entry.dependencies;
+});
 
-    return entry.dependencies;
-  }
-}
-
-function detectNpm(
+const detectNpm = Effect.fnUntraced(function* (
   root: string,
   manifests: ReadonlyMap<string, string[]>,
   acc: WalkAccumulator,
   frameworks: Map<string, FrameworkEntry>,
   cache: Map<string, ManifestCacheEntry>,
   state: CollectionState,
-): void {
+) {
   for (const rel of manifests.get("npm") ?? []) {
-    const pkg = parsedPackageJson(root, rel, cache, state);
+    const pkg = yield* parsedPackageJson(root, rel, cache, state);
 
     if (!pkg) continue;
 
@@ -803,19 +897,19 @@ function detectNpm(
       }
     }
   }
-}
+});
 
-function detectParsedDependencies(
+const detectParsedDependencies = Effect.fnUntraced(function* (
   root: string,
   manifests: ReadonlyMap<string, string[]>,
   acc: WalkAccumulator,
   frameworks: Map<string, FrameworkEntry>,
   cache: Map<string, ManifestCacheEntry>,
   state: CollectionState,
-): void {
+) {
   for (const eco of PARSED_DEPENDENCY_ECOSYSTEMS) {
     for (const rel of manifests.get(eco) ?? []) {
-      for (const dependency of manifestDependencies(
+      for (const dependency of yield* manifestDependencies(
         root,
         eco,
         rel,
@@ -840,7 +934,7 @@ function detectParsedDependencies(
       }
     }
   }
-}
+});
 
 function buildLanguages(
   acc: WalkAccumulator,
@@ -932,18 +1026,22 @@ function emptyStack(
 }
 
 /** Produce a deterministic, bounded stack summary for a Git worktree. */
-export function detectStack(options: StackContextOptions): StackContextData {
+export const detectStack = Effect.fn("stack.detect")(function* (
+  options: StackContextOptions,
+) {
   const { root } = options;
+  const fs = yield* FileSystem.FileSystem;
 
-  try {
-    if (!statSync(root).isDirectory()) {
-      return emptyStack(root, `'${root}' is not a readable directory.`);
-    }
-  } catch {
+  const isDirectory = yield* fs.stat(root).pipe(
+    Effect.map((info) => info.type === "Directory"),
+    Effect.orElseSucceed(() => false),
+  );
+
+  if (!isDirectory) {
     return emptyStack(root, `'${root}' is not a readable directory.`);
   }
 
-  const files = gitFiles(root);
+  const files = yield* gitFiles(root);
 
   if (!files.ok) return emptyStack(root, files.warning);
 
@@ -968,11 +1066,18 @@ export function detectStack(options: StackContextOptions): StackContextData {
     );
   }
 
-  const acc = walk(root, options, files.files, state);
+  const acc = yield* walk(root, options, files.files, state);
   const frameworks = new Map<string, FrameworkEntry>();
   const cache = new Map<string, ManifestCacheEntry>();
-  detectNpm(root, acc.manifests, acc, frameworks, cache, state);
-  detectParsedDependencies(root, acc.manifests, acc, frameworks, cache, state);
+  yield* detectNpm(root, acc.manifests, acc, frameworks, cache, state);
+  yield* detectParsedDependencies(
+    root,
+    acc.manifests,
+    acc,
+    frameworks,
+    cache,
+    state,
+  );
   const languages = buildLanguages(acc, options.topLocations, state);
   const ecosystems = buildEcosystems(acc);
   const tooling = buildTooling(acc, state);
@@ -989,5 +1094,5 @@ export function detectStack(options: StackContextOptions): StackContextData {
       a.name.localeCompare(b.name),
     ),
     warnings: state.warnings,
-  };
-}
+  } satisfies StackContextData;
+});

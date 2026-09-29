@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { NodeServices } from "@effect/platform-node";
+import { Effect, Layer } from "effect";
 import {
   CommandError,
   CommandExecutor,
@@ -13,12 +12,23 @@ import {
   GIT_CONTEXT_DEFAULTS,
   type BranchContextOptions,
 } from "../../src/git/context/model.js";
+import {
+  gitAsync as git,
+  makeTempDirectory,
+  removePath,
+  renamePath,
+  writeTextFile,
+} from "../helpers/platform.js";
 import { GitHub, type GitHubService } from "../../src/git/services/GitHub.js";
 
 const liveExecutor = Effect.runSync(
   Effect.gen(function* () {
     return yield* CommandExecutor;
-  }).pipe(Effect.provide(CommandExecutor.layer)),
+  }).pipe(
+    Effect.provide(
+      CommandExecutor.layer.pipe(Layer.provide(NodeServices.layer)),
+    ),
+  ),
 );
 
 const unusedGitHub: GitHubService = {
@@ -58,38 +68,26 @@ function collect(
   );
 }
 
-function git(repository: string, args: readonly string[]) {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd: repository,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  if (result.exitCode !== 0) {
-    throw new Error(new TextDecoder().decode(result.stderr));
-  }
-}
-
 async function withRepository(run: (repository: string) => Promise<void>) {
-  const repository = await mkdtemp(join(tmpdir(), "context-git-"));
+  const repository = await makeTempDirectory("context-git-");
 
   try {
-    git(repository, ["init", "-q", "--initial-branch=trunk"]);
-    git(repository, ["config", "user.email", "context@example.invalid"]);
-    git(repository, ["config", "user.name", "Context Test"]);
-    await writeFile(join(repository, "old => name.txt"), "content\n");
-    git(repository, ["add", "--all"]);
-    git(repository, ["commit", "-qm", "initial"]);
+    await git(repository, ["init", "-q", "--initial-branch=trunk"]);
+    await git(repository, ["config", "user.email", "context@example.invalid"]);
+    await git(repository, ["config", "user.name", "Context Test"]);
+    await writeTextFile(join(repository, "old => name.txt"), "content\n");
+    await git(repository, ["add", "--all"]);
+    await git(repository, ["commit", "-qm", "initial"]);
     await run(repository);
   } finally {
-    await rm(repository, { recursive: true, force: true });
+    await removePath(repository);
   }
 }
 
-function configureResolvedOrigin(repository: string) {
-  git(repository, ["remote", "add", "origin", repository]);
-  git(repository, ["update-ref", "refs/remotes/origin/trunk", "HEAD"]);
-  git(repository, [
+async function configureResolvedOrigin(repository: string) {
+  await git(repository, ["remote", "add", "origin", repository]);
+  await git(repository, ["update-ref", "refs/remotes/origin/trunk", "HEAD"]);
+  await git(repository, [
     "symbolic-ref",
     "refs/remotes/origin/HEAD",
     "refs/remotes/origin/trunk",
@@ -98,7 +96,7 @@ function configureResolvedOrigin(repository: string) {
 
 describe("buildBranchContext", () => {
   test("returns minimal context outside a git worktree", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "context-not-git-"));
+    const directory = await makeTempDirectory("context-not-git-");
 
     try {
       expect(
@@ -109,13 +107,13 @@ describe("buildBranchContext", () => {
         warnings: [],
       });
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      await removePath(directory);
     }
   });
 
   test("models the resolved default branch and skips pull requests", async () => {
     await withRepository(async (repository) => {
-      configureResolvedOrigin(repository);
+      await configureResolvedOrigin(repository);
       let githubCalled = false;
 
       const github: GitHubService = {
@@ -157,16 +155,20 @@ describe("buildBranchContext", () => {
 
   test("separates feature scope from upstream push status", async () => {
     await withRepository(async (repository) => {
-      configureResolvedOrigin(repository);
-      git(repository, ["switch", "-qc", "feature"]);
-      await writeFile(join(repository, "pushed.txt"), "pushed\n");
-      git(repository, ["add", "pushed.txt"]);
-      git(repository, ["commit", "-qm", "pushed feature work"]);
-      git(repository, ["update-ref", "refs/remotes/origin/feature", "HEAD"]);
-      git(repository, ["branch", "--set-upstream-to=origin/feature"]);
-      await writeFile(join(repository, "local.txt"), "local\n");
-      git(repository, ["add", "local.txt"]);
-      git(repository, ["commit", "-qm", "local feature work"]);
+      await configureResolvedOrigin(repository);
+      await git(repository, ["switch", "-qc", "feature"]);
+      await writeTextFile(join(repository, "pushed.txt"), "pushed\n");
+      await git(repository, ["add", "pushed.txt"]);
+      await git(repository, ["commit", "-qm", "pushed feature work"]);
+      await git(repository, [
+        "update-ref",
+        "refs/remotes/origin/feature",
+        "HEAD",
+      ]);
+      await git(repository, ["branch", "--set-upstream-to=origin/feature"]);
+      await writeTextFile(join(repository, "local.txt"), "local\n");
+      await git(repository, ["add", "local.txt"]);
+      await git(repository, ["commit", "-qm", "local feature work"]);
 
       const context = await collect(
         repository,
@@ -202,14 +204,14 @@ describe("buildBranchContext", () => {
 
   test("sanitises credentials from remote details", async () => {
     await withRepository(async (repository) => {
-      configureResolvedOrigin(repository);
-      git(repository, [
+      await configureResolvedOrigin(repository);
+      await git(repository, [
         "remote",
         "set-url",
         "origin",
         "https://user:secret@example.invalid/repo.git",
       ]);
-      git(repository, [
+      await git(repository, [
         "remote",
         "set-url",
         "--push",
@@ -236,12 +238,15 @@ describe("buildBranchContext", () => {
 
   test("collects committed and working-tree changes in the branch diff", async () => {
     await withRepository(async (repository) => {
-      configureResolvedOrigin(repository);
-      git(repository, ["switch", "-qc", "feature"]);
-      await writeFile(join(repository, "feature.txt"), "committed\n");
-      git(repository, ["add", "feature.txt"]);
-      git(repository, ["commit", "-qm", "feature work"]);
-      await writeFile(join(repository, "feature.txt"), "committed\nworking\n");
+      await configureResolvedOrigin(repository);
+      await git(repository, ["switch", "-qc", "feature"]);
+      await writeTextFile(join(repository, "feature.txt"), "committed\n");
+      await git(repository, ["add", "feature.txt"]);
+      await git(repository, ["commit", "-qm", "feature work"]);
+      await writeTextFile(
+        join(repository, "feature.txt"),
+        "committed\nworking\n",
+      );
 
       const context = await collect(
         repository,
@@ -262,7 +267,7 @@ describe("buildBranchContext", () => {
 
   test("rejects branch diffs on the default branch", async () => {
     await withRepository(async (repository) => {
-      configureResolvedOrigin(repository);
+      await configureResolvedOrigin(repository);
 
       expect(
         collect(repository, repoExecutor(repository), unusedGitHub, {
@@ -276,7 +281,7 @@ describe("buildBranchContext", () => {
 
   test("fails clearly when ahead and behind counts are malformed", async () => {
     await withRepository(async (repository) => {
-      configureResolvedOrigin(repository);
+      await configureResolvedOrigin(repository);
 
       const executor = repoExecutor(repository, (cmd, args, opts) => {
         if (
@@ -298,8 +303,8 @@ describe("buildBranchContext", () => {
 
   test("models detached HEAD without attempting pull request collection", async () => {
     await withRepository(async (repository) => {
-      configureResolvedOrigin(repository);
-      git(repository, ["checkout", "-q", "--detach"]);
+      await configureResolvedOrigin(repository);
+      await git(repository, ["checkout", "-q", "--detach"]);
       let githubCalled = false;
 
       const github: GitHubService = {
@@ -333,7 +338,7 @@ describe("buildBranchContext", () => {
 
   test("models an unavailable remote HEAD without assuming main", async () => {
     await withRepository(async (repository) => {
-      git(repository, [
+      await git(repository, [
         "remote",
         "add",
         "origin",
@@ -383,16 +388,16 @@ describe("buildBranchContext", () => {
       const renamed = "new\tline\nname => literal.txt";
       const modified = "modified\tline\nname => literal.txt";
       const untracked = "loose\tline\nname => literal.txt";
-      await writeFile(join(repository, modified), "before\n");
-      git(repository, ["add", "--all"]);
-      git(repository, ["commit", "-qm", "add unusual path"]);
-      await rename(
+      await writeTextFile(join(repository, modified), "before\n");
+      await git(repository, ["add", "--all"]);
+      await git(repository, ["commit", "-qm", "add unusual path"]);
+      await renamePath(
         join(repository, "old => name.txt"),
         join(repository, renamed),
       );
-      await writeFile(join(repository, modified), "after\n");
-      await writeFile(join(repository, untracked), "untracked\n");
-      git(repository, ["add", "--all", ":!" + untracked]);
+      await writeTextFile(join(repository, modified), "after\n");
+      await writeTextFile(join(repository, untracked), "untracked\n");
+      await git(repository, ["add", "--all", ":!" + untracked]);
 
       const stagedContext = await collect(repository);
       expect(stagedContext.status?.staged).toHaveLength(2);
@@ -426,8 +431,8 @@ describe("buildBranchContext", () => {
         "old => name.txt -> new\\tline\\nname => literal.txt",
       );
 
-      git(repository, ["add", "--all"]);
-      git(repository, ["commit", "-qm", "rename literal => path"]);
+      await git(repository, ["add", "--all"]);
+      await git(repository, ["commit", "-qm", "rename literal => path"]);
       const committedContext = await collect(repository);
 
       const committedRename = committedContext.commits?.records[0]?.files.find(

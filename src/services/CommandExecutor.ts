@@ -1,4 +1,5 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema, Stream } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import {
   DEFAULT_COMMAND_MAX_OUTPUT_BYTES,
   DEFAULT_COMMAND_TIMEOUT_MS,
@@ -22,7 +23,7 @@ export class CommandError extends Schema.TaggedError<CommandError>()(
   "CommandError",
   {
     command: Schema.String,
-    exitCode: Schema.Number,
+    exitCode: Schema.Finite,
     reason: Schema.Literals(["spawn", "exit", "timeout", "output_limit"]),
     stdout: Schema.String,
     stderr: Schema.String,
@@ -52,7 +53,10 @@ interface CapturedOutput {
 
 type TerminationReason = "timeout" | "output_limit";
 
-const KILL_GRACE_MS = 100;
+const KILL_OPTIONS = {
+  killSignal: "SIGTERM",
+  forceKillAfter: 100,
+} as const;
 
 function boundedOption(value: number | undefined, fallback: number): number {
   return value === undefined || !Number.isFinite(value) || value < 0
@@ -88,14 +92,21 @@ function commandError(
       });
 }
 
-async function execute(
+/** The spawner fails `exitCode` when the process dies from a signal. */
+const SIGNALLED_EXIT_CODE = -1;
+
+const exitCodeOf = (child: ChildProcessSpawner.ChildProcessHandle) =>
+  Effect.orElseSucceed(child.exitCode, () => SIGNALLED_EXIT_CODE);
+
+type Spawner = ChildProcessSpawner.ChildProcessSpawner["Service"];
+
+const execute = Effect.fnUntraced(function* (
+  spawner: Spawner,
   cmd: string,
   args: readonly string[],
   opts: CommandRunOptions | undefined,
-  signal: AbortSignal,
-): Promise<string> {
-  const fullCmd = [cmd, ...args];
-  const command = fullCmd.join(" ");
+) {
+  const command = [cmd, ...args].join(" ");
 
   const maxOutputBytes = boundedOption(
     opts?.maxOutputBytes,
@@ -108,124 +119,88 @@ async function execute(
   const stderr: CapturedOutput = { chunks: [], bytes: 0 };
   let aggregateBytes = 0;
   let terminationReason: TerminationReason | undefined;
-  let hardKillTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const proc = Bun.spawn(fullCmd, {
-    stdout: "pipe",
-    stderr: "pipe",
-    cwd: opts?.cwd,
-  });
+  const exitCode = yield* Effect.gen(function* () {
+    const child = yield* spawner.spawn(
+      ChildProcess.make(cmd, [...args], {
+        cwd: opts?.cwd,
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+        ...KILL_OPTIONS,
+      }),
+    );
 
-  const stdoutReader = proc.stdout.getReader();
-  const stderrReader = proc.stderr.getReader();
+    const drain = (
+      stream: Stream.Stream<Uint8Array, unknown>,
+      output: CapturedOutput,
+      streamLimit: number,
+    ) =>
+      stream.pipe(
+        Stream.runForEachWhile((chunk) =>
+          Effect.sync(() => {
+            if (terminationReason !== undefined) return false;
 
-  const terminate = (reason?: TerminationReason) => {
-    if (reason !== undefined && terminationReason === undefined) {
-      terminationReason = reason;
-    }
+            const accepted = Math.max(
+              0,
+              Math.min(
+                chunk.byteLength,
+                maxOutputBytes - aggregateBytes,
+                streamLimit - output.bytes,
+              ),
+            );
 
-    void stdoutReader.cancel().catch(() => undefined);
-    void stderrReader.cancel().catch(() => undefined);
+            if (accepted > 0) {
+              output.chunks.push(chunk.slice(0, accepted));
+              output.bytes += accepted;
+              aggregateBytes += accepted;
+            }
 
-    if (proc.exitCode !== null) return;
+            if (accepted < chunk.byteLength) {
+              terminationReason = "output_limit";
 
-    try {
-      proc.kill("SIGTERM");
-    } catch {
-      return;
-    }
+              return false;
+            }
 
-    hardKillTimer ??= setTimeout(() => {
-      if (proc.exitCode === null) {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          // The process exited between the exit-code check and the signal.
-        }
-      }
-    }, KILL_GRACE_MS);
-  };
+            return true;
+          }),
+        ),
+        Effect.tap(() =>
+          terminationReason === undefined
+            ? Effect.void
+            : Effect.ignore(child.kill(KILL_OPTIONS)),
+        ),
+      );
 
-  const drain = async (
-    reader: ReadableStreamDefaultReader<Uint8Array>,
-    output: CapturedOutput,
-    streamLimit: number,
-  ) => {
-    try {
-      while (terminationReason === undefined && !signal.aborted) {
-        const result = await reader.read();
+    const finished = yield* Effect.all(
+      [
+        drain(child.stdout, stdout, maxStdoutBytes),
+        drain(child.stderr, stderr, maxStderrBytes),
+        exitCodeOf(child),
+      ],
+      { concurrency: "unbounded" },
+    ).pipe(
+      Effect.timeoutOption(
+        boundedOption(opts?.timeoutMs, DEFAULT_COMMAND_TIMEOUT_MS),
+      ),
+    );
 
-        if (result.done) return;
-        const aggregateRemaining = maxOutputBytes - aggregateBytes;
-        const streamRemaining = streamLimit - output.bytes;
+    if (Option.isSome(finished)) return finished.value[2];
 
-        const accepted = Math.max(
-          0,
-          Math.min(
-            result.value.byteLength,
-            aggregateRemaining,
-            streamRemaining,
-          ),
-        );
+    terminationReason ??= "timeout";
+    yield* Effect.ignore(child.kill(KILL_OPTIONS));
 
-        if (accepted > 0) {
-          output.chunks.push(result.value.slice(0, accepted));
-          output.bytes += accepted;
-          aggregateBytes += accepted;
-        }
-
-        if (accepted < result.value.byteLength) {
-          terminate("output_limit");
-
-          return;
-        }
-      }
-    } catch (error) {
-      if (terminationReason === undefined && !signal.aborted) throw error;
-    } finally {
-      reader.releaseLock();
-    }
-  };
-
-  const abort = () => terminate();
-  signal.addEventListener("abort", abort, { once: true });
-
-  if (signal.aborted) abort();
-
-  const timeoutTimer = setTimeout(
-    () => terminate("timeout"),
-    boundedOption(opts?.timeoutMs, DEFAULT_COMMAND_TIMEOUT_MS),
+    return yield* exitCodeOf(child);
+  }).pipe(
+    Effect.scoped,
+    Effect.mapError((cause) => commandError(command, "spawn", cause)),
   );
-
-  let exitCode = -1;
-
-  try {
-    const [, , code] = await Promise.all([
-      drain(stdoutReader, stdout, maxStdoutBytes),
-      drain(stderrReader, stderr, maxStderrBytes),
-      proc.exited,
-    ]);
-
-    exitCode = code;
-  } catch (error) {
-    terminate();
-    await proc.exited.catch(() => -1);
-    throw error;
-  } finally {
-    clearTimeout(timeoutTimer);
-
-    if (hardKillTimer !== undefined && proc.exitCode !== null) {
-      clearTimeout(hardKillTimer);
-    }
-
-    signal.removeEventListener("abort", abort);
-  }
 
   const capturedStdout = decodeOutput(stdout);
   const capturedStderr = decodeOutput(stderr);
 
   if (terminationReason !== undefined) {
-    throw new CommandError({
+    return yield* new CommandError({
       command,
       exitCode,
       reason: terminationReason,
@@ -235,7 +210,7 @@ async function execute(
   }
 
   if (exitCode !== 0) {
-    throw new CommandError({
+    return yield* new CommandError({
       command,
       exitCode,
       reason: "exit",
@@ -245,101 +220,71 @@ async function execute(
   }
 
   return capturedStdout;
-}
+});
 
-async function executeExitCode(
+const executeExitCode = Effect.fnUntraced(function* (
+  spawner: Spawner,
   cmd: string,
   args: readonly string[],
   opts: CommandExitCodeOptions | undefined,
-  signal: AbortSignal,
-): Promise<number> {
-  const proc = Bun.spawn([cmd, ...args], {
-    stdout: "ignore",
-    stderr: "ignore",
-    cwd: opts?.cwd,
-  });
+) {
+  const command = [cmd, ...args].join(" ");
 
-  let timedOut = false;
-  let hardKillTimer: ReturnType<typeof setTimeout> | undefined;
+  const outcome = yield* Effect.gen(function* () {
+    const child = yield* spawner.spawn(
+      ChildProcess.make(cmd, [...args], {
+        cwd: opts?.cwd,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+        ...KILL_OPTIONS,
+      }),
+    );
 
-  const terminate = () => {
-    if (proc.exitCode !== null) return;
+    const exited = yield* exitCodeOf(child).pipe(
+      Effect.timeoutOption(
+        boundedOption(opts?.timeoutMs, DEFAULT_COMMAND_TIMEOUT_MS),
+      ),
+    );
 
-    try {
-      proc.kill("SIGTERM");
-    } catch {
-      return;
-    }
+    if (Option.isSome(exited)) return { timedOut: false, code: exited.value };
 
-    hardKillTimer ??= setTimeout(() => {
-      if (proc.exitCode === null) {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          // The process exited between the exit-code check and the signal.
-        }
-      }
-    }, KILL_GRACE_MS);
-  };
+    yield* Effect.ignore(child.kill(KILL_OPTIONS));
 
-  const abort = () => terminate();
-  signal.addEventListener("abort", abort, { once: true });
-
-  if (signal.aborted) abort();
-
-  const timeoutTimer = setTimeout(
-    () => {
-      timedOut = true;
-      terminate();
-    },
-    boundedOption(opts?.timeoutMs, DEFAULT_COMMAND_TIMEOUT_MS),
+    return { timedOut: true, code: yield* exitCodeOf(child) };
+  }).pipe(
+    Effect.scoped,
+    Effect.mapError((cause) => commandError(command, "spawn", cause)),
   );
 
-  try {
-    const exitCode = await proc.exited;
-
-    if (timedOut) {
-      throw new CommandError({
-        command: [cmd, ...args].join(" "),
-        exitCode,
-        reason: "timeout",
-        stdout: "",
-        stderr: "",
-      });
-    }
-
-    return exitCode;
-  } catch (error) {
-    terminate();
-    throw error;
-  } finally {
-    clearTimeout(timeoutTimer);
-
-    if (hardKillTimer !== undefined && proc.exitCode !== null) {
-      clearTimeout(hardKillTimer);
-    }
-
-    signal.removeEventListener("abort", abort);
+  if (outcome.timedOut) {
+    return yield* new CommandError({
+      command,
+      exitCode: outcome.code,
+      reason: "timeout",
+      stdout: "",
+      stderr: "",
+    });
   }
-}
+
+  return outcome.code;
+});
 
 /** Effect service for executing subprocess commands. */
 export class CommandExecutor extends Context.Service<
   CommandExecutor,
   CommandExecutorService
 >()("CommandExecutor") {
-  static readonly layer = Layer.succeed(CommandExecutor, {
-    run: (cmd, args, opts) =>
-      Effect.tryPromise({
-        try: (signal) => execute(cmd, args, opts, signal),
-        catch: (error) =>
-          commandError([cmd, ...args].join(" "), "spawn", error),
-      }),
-    exitCode: (cmd, args, opts) =>
-      Effect.tryPromise({
-        try: (signal) => executeExitCode(cmd, args, opts, signal),
-        catch: (error) =>
-          commandError([cmd, ...args].join(" "), "spawn", error),
-      }),
-  });
+  static readonly layer = Layer.effect(
+    CommandExecutor,
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+      return CommandExecutor.of({
+        run: (cmd, args, opts) => execute(spawner, cmd, args, opts),
+        exitCode: (cmd, args, opts) =>
+          executeExitCode(spawner, cmd, args, opts),
+      });
+    }),
+  );
 }

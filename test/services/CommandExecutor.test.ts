@@ -1,8 +1,8 @@
 /// <reference types="bun" />
 
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
-import { mkdtemp, rm } from "node:fs/promises";
+import { NodeServices } from "@effect/platform-node";
+import { Effect, Layer } from "effect";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +10,15 @@ import {
   type CommandExitCodeOptions,
   type CommandRunOptions,
 } from "../../src/services/CommandExecutor.js";
+import {
+  makeTempDirectory,
+  pathExists,
+  removePath,
+} from "../helpers/platform.js";
+
+const ExecutorLayer = CommandExecutor.layer.pipe(
+  Layer.provide(NodeServices.layer),
+);
 
 const helper = new URL("./fixtures/command-helper.ts", import.meta.url)
   .pathname;
@@ -20,7 +29,7 @@ function run(args: readonly string[], opts?: CommandRunOptions) {
       const executor = yield* CommandExecutor;
 
       return yield* executor.run(process.execPath, [helper, ...args], opts);
-    }).pipe(Effect.provide(CommandExecutor.layer)),
+    }).pipe(Effect.provide(ExecutorLayer)),
   );
 }
 
@@ -37,7 +46,7 @@ function runFailure(args: readonly string[], opts?: CommandRunOptions) {
             onSuccess: () => undefined,
           }),
         );
-    }).pipe(Effect.provide(CommandExecutor.layer)),
+    }).pipe(Effect.provide(ExecutorLayer)),
   );
 }
 
@@ -57,7 +66,7 @@ function exitCodeFailure(
             onSuccess: () => undefined,
           }),
         );
-    }).pipe(Effect.provide(CommandExecutor.layer)),
+    }).pipe(Effect.provide(ExecutorLayer)),
   );
 }
 
@@ -71,7 +80,7 @@ function exitCode(args: readonly string[], opts?: CommandExitCodeOptions) {
         [helper, ...args],
         opts,
       );
-    }).pipe(Effect.provide(CommandExecutor.layer)),
+    }).pipe(Effect.provide(ExecutorLayer)),
   );
 }
 
@@ -81,7 +90,7 @@ function spawnFailure(command: string) {
       const executor = yield* CommandExecutor;
 
       return yield* executor.run(command, []).pipe(Effect.flip);
-    }).pipe(Effect.provide(CommandExecutor.layer)),
+    }).pipe(Effect.provide(ExecutorLayer)),
   );
 }
 
@@ -131,13 +140,13 @@ describe("CommandExecutor", () => {
                 onSuccess: () => undefined,
               }),
             );
-        }).pipe(Effect.provide(CommandExecutor.layer)),
+        }).pipe(Effect.provide(ExecutorLayer)),
       );
       await Bun.sleep(400);
 
-      expect(await Bun.file(marker).exists()).toBe(false);
+      expect(await pathExists(marker)).toBe(false);
     } finally {
-      await rm(marker, { force: true });
+      await removePath(marker);
     }
   });
 
@@ -189,12 +198,12 @@ describe("CommandExecutor", () => {
   });
 
   test("forwards the working directory", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "context-command-cwd-"));
+    const directory = await makeTempDirectory("context-command-cwd-");
 
     try {
       expect(await run(["cwd"], { cwd: directory })).toBe(directory);
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      await removePath(directory);
     }
   });
 

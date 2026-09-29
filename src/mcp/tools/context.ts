@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import { Effect, FileSystem, Schema } from "effect";
+import { ChildProcessSpawner } from "effect/process";
 import { UsageError } from "../../cli/args.js";
 import { parseSince } from "../../cli/since.js";
 import { renderHelp } from "../../cli/help.js";
@@ -69,6 +70,8 @@ export const registerContextTools = Effect.gen(function* () {
   const { register } = yield* ToolRegistrar;
   const executor = yield* CommandExecutor;
   const github = yield* GitHub;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
   const gitMeta = metadata("git_context");
   yield* register({
@@ -97,7 +100,10 @@ export const registerContextTools = Effect.gen(function* () {
     parameters: StackContextParams,
     annotations: READONLY_HINTS,
     handle: (params) =>
-      stackContextText(stackContextOptions({ root: params.dir })),
+      stackContextText(stackContextOptions({ root: params.dir })).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      ),
   });
 
   const helpMeta = metadata("command_help");
