@@ -24,6 +24,15 @@ import {
   textStream,
 } from "./helpers/gh.js";
 
+const isRateLimitRead = (args: readonly string[]) =>
+  args.includes("rate_limit");
+
+const rateLimitJson = (remaining: number, reset = 9_999_999_999) => {
+  const resource = { limit: 5000, used: 5000 - remaining, remaining, reset };
+
+  return `${JSON.stringify({ resources: { core: resource, graphql: resource, search: resource } })}\n`;
+};
+
 describe("GitHub", () => {
   test("passes literal arguments and inherits SDK cwd and environment settings", async () => {
     await Effect.runPromise(
@@ -236,22 +245,13 @@ describe("GitHub", () => {
     const github = await makeGitHub((args) => {
       commands.push([...args]);
 
-      return success(
-        args[0] === "api" && args[1] === "rate_limit"
-          ? "100\t9999999999\n"
-          : "ok\n",
-      );
+      return success(isRateLimitRead(args) ? rateLimitJson(100) : "ok\n");
     });
 
     expect(await Effect.runPromise(github.run(["pr", "view"]))).toBe("ok\n");
     expect(await Effect.runPromise(github.run(["pr", "checks"]))).toBe("ok\n");
     expect(commands).toEqual([
-      [
-        "api",
-        "rate_limit",
-        "--jq",
-        ".resources.core | [.remaining, .reset] | @tsv",
-      ],
+      ["api", "--method", "GET", "--", "rate_limit"],
       ["pr", "view"],
       ["pr", "checks"],
     ]);
@@ -263,7 +263,7 @@ describe("GitHub", () => {
     const github = await makeGitHub((args) => {
       commands.push([...args]);
 
-      return args[0] === "api" && args[1] === "rate_limit"
+      return isRateLimitRead(args)
         ? failure("gh is unavailable")
         : success("result");
     });
@@ -280,7 +280,7 @@ describe("GitHub", () => {
     const github = await makeGitHub((args) => {
       commands.push([...args]);
 
-      return success("0\t9999999999\n");
+      return success(rateLimitJson(0));
     });
 
     const error = await Effect.runPromise(
@@ -422,10 +422,10 @@ describe("GitHub", () => {
     let commands = 0;
 
     const github = await makeGitHub((args) => {
-      if (args[0] === "api" && args[1] === "rate_limit") {
+      if (isRateLimitRead(args)) {
         rateLimitChecks += 1;
 
-        return success("100\t9999999999\n");
+        return success(rateLimitJson(100));
       }
 
       commands += 1;
@@ -444,6 +444,41 @@ describe("GitHub", () => {
 
     expect(rateLimitChecks).toBe(2);
     expect(commands).toBe(2);
+  });
+
+  test("re-checks the rate limit before a retry and stops when it is exhausted", async () => {
+    let rateLimitChecks = 0;
+    let commands = 0;
+
+    const github = await makeGitHub((args) => {
+      if (isRateLimitRead(args)) {
+        rateLimitChecks += 1;
+
+        return success(rateLimitJson(rateLimitChecks === 1 ? 100 : 0));
+      }
+
+      commands += 1;
+
+      return failure("API rate limit exceeded");
+    });
+
+    const error = await Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* github
+          .run(["pr", "view"], { retries: 1 })
+          .pipe(Effect.flip, Effect.forkChild);
+
+        yield* Effect.yieldNow.pipe(Effect.repeat({ times: 20 }));
+        yield* TestClock.adjust("1 second");
+
+        return yield* Fiber.join(fiber);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    expect(commands).toBe(1);
+    expect(rateLimitChecks).toBe(2);
+    expect(error).toMatchObject({ rateLimited: true, retryable: false });
+    expect(error.stderr).toContain("rate limit exhausted");
   });
 
   test("reports invalid JSON as a non-retryable GitHub error", async () => {

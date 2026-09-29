@@ -1,5 +1,13 @@
-import { Gh } from "@timmo001/effect-gh";
 import {
+  Gh,
+  GhCommandError,
+  isRateLimited,
+  isTransient,
+  RateLimit,
+  type GhError,
+} from "@timmo001/effect-gh";
+import {
+  Cache,
   Clock,
   Context,
   Duration,
@@ -7,35 +15,31 @@ import {
   Layer,
   Match,
   Predicate,
+  Schedule,
   Schema,
   Stream,
 } from "effect";
 import {
   DEFAULT_COMMAND_MAX_OUTPUT_BYTES,
   DEFAULT_COMMAND_TIMEOUT_MS,
-  ENV,
-  envNonNegativeInt,
 } from "../../lib/env.js";
 
-const DEFAULT_RETRIES = envNonNegativeInt(ENV.CONTEXT_GITHUB_RETRIES, 2);
-
-const RATE_LIMIT_TTL_MS =
-  envNonNegativeInt(ENV.CONTEXT_GITHUB_RATE_LIMIT_TTL_SECONDS, 60) * 1000;
-
-const RATE_LIMIT_MIN_REMAINING = envNonNegativeInt(
-  ENV.CONTEXT_GITHUB_RATE_LIMIT_MIN_REMAINING,
-  0,
-);
-
-const RATE_LIMIT_MAX_WAIT_SECONDS = envNonNegativeInt(
-  ENV.CONTEXT_GITHUB_RATE_LIMIT_MAX_WAIT_SECONDS,
-  60,
-);
+/** Retry and rate-limit settings, read once at the composition root. */
+export interface GitHubSettings {
+  /** Default retries after the initial attempt. */
+  readonly retries: number;
+  /** How long a REST rate-limit snapshot stays fresh. */
+  readonly rateLimitTtlSeconds: number;
+  /** Requests that must remain before a command is allowed to run. */
+  readonly rateLimitMinRemaining: number;
+  /** Longest wait for a rate-limit reset before failing instead. */
+  readonly rateLimitMaxWaitSeconds: number;
+}
 
 /** Domain error for GitHub CLI/API operations. */
 class GitHubError extends Schema.TaggedError<GitHubError>()("GitHubError", {
   command: Schema.String,
-  exitCode: Schema.Number,
+  exitCode: Schema.Finite,
   reason: Schema.Literals(["spawn", "exit", "timeout", "output_limit"]),
   stdout: Schema.String,
   stderr: Schema.String,
@@ -65,55 +69,42 @@ export interface GitHubService {
   ) => Effect.Effect<Schema.Json, GitHubError>;
 }
 
-interface RateLimitSnapshot {
-  readonly remaining: number;
-  readonly resetEpochSeconds: number;
-  readonly checkedAtMillis: number;
+interface Diagnostics {
+  stdout: string;
+  stderr: string;
 }
 
-type GitHubAttemptResult =
+type GitHubAttemptOutcome =
   | { readonly type: "success"; readonly output: string }
-  | { readonly type: "failure"; readonly error: GitHubError };
+  | { readonly type: "output_limit" }
+  | {
+      readonly type: "rate_limit_exhausted";
+      readonly resetEpochSeconds: number;
+    };
 
 /** Effect service for GitHub CLI/API communication. */
 export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
-  static readonly layer = Layer.effect(
-    GitHub,
-    Effect.gen(function* () {
-      const gh = yield* Gh;
-      let rateLimitCache: RateLimitSnapshot | null = null;
+  static readonly layer = (settings: GitHubSettings) =>
+    Layer.effect(
+      GitHub,
+      Effect.gen(function* () {
+        const gh = yield* Gh;
 
-      const execute = Effect.fn("GitHub.execute")(function* (
-        args: readonly string[],
-      ) {
-        let stdout = "";
-        let stderr = "";
-        let bytes = 0;
-        // Keep streamed diagnostics: SDK command errors omit stdout and cap stderr.
-        yield* gh.stream(args, { timeout: DEFAULT_COMMAND_TIMEOUT_MS }).pipe(
-          Stream.mapError((error) =>
-            toGitHubError(args, {
-              exitCode: Predicate.isTagged(error, "GhCommandError")
-                ? error.exitCode
-                : -1,
-              reason: Match.value(error).pipe(
-                Match.tag("GhTimeoutError", () => "timeout" as const),
-                Match.tag("GhPlatformError", () => "spawn" as const),
-                Match.orElse(() => "exit" as const),
-              ),
-              stdout,
-              stderr:
-                Predicate.isTagged(error, "GhPlatformError") ||
-                Predicate.isTagged(error, "GhDecodeError")
-                  ? stderr ||
-                    (error.cause instanceof Error
-                      ? error.cause.message
-                      : String(error.cause))
-                  : stderr,
-            }),
-          ),
-          Stream.runForEach((chunk) =>
-            Effect.gen(function* () {
+        const rateLimits = yield* RateLimit.cached(
+          Duration.seconds(settings.rateLimitTtlSeconds),
+        );
+
+        const execute = Effect.fn("GitHub.execute")(function* (
+          args: readonly string[],
+          diagnostics: Diagnostics,
+        ) {
+          let bytes = 0;
+          let limited = false;
+          diagnostics.stdout = "";
+          diagnostics.stderr = "";
+          // Keep streamed diagnostics: SDK command errors omit stdout and cap stderr.
+          yield* gh.stream(args, { timeout: DEFAULT_COMMAND_TIMEOUT_MS }).pipe(
+            Stream.takeWhile((chunk) => {
               const encoded = new TextEncoder().encode(chunk.text);
 
               const accepted = Math.min(
@@ -126,228 +117,183 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
                   ? chunk.text
                   : new TextDecoder().decode(encoded.subarray(0, accepted));
 
-              if (Predicate.isTagged(chunk, "Stdout")) stdout += text;
-              else stderr += text;
+              if (Predicate.isTagged(chunk, "Stdout"))
+                diagnostics.stdout += text;
+              else diagnostics.stderr += text;
               bytes += accepted;
+              limited = accepted < encoded.byteLength;
 
-              if (accepted < encoded.byteLength) {
-                return yield* toGitHubError(args, {
-                  exitCode: -1,
-                  reason: "output_limit",
-                  stdout,
-                  stderr,
-                });
-              }
+              return !limited;
             }),
-          ),
-        );
+            Stream.runDrain,
+            Effect.mapError((error) =>
+              error instanceof GhCommandError
+                ? new GhCommandError({
+                    executable: error.executable,
+                    exitCode: error.exitCode,
+                    stdout: diagnostics.stdout,
+                    stdoutTruncated: false,
+                    stderr: diagnostics.stderr,
+                    stderrTruncated: false,
+                  })
+                : error,
+            ),
+          );
 
-        return stdout;
-      });
-
-      const fetchRateLimit = Effect.fn("GitHub.fetchRateLimit")(function* (
-        checkedAtMillis: number,
-      ) {
-        const raw = yield* execute([
-          "api",
-          "rate_limit",
-          "--jq",
-          ".resources.core | [.remaining, .reset] | @tsv",
-        ]);
-
-        return parseRateLimit(raw, checkedAtMillis);
-      });
-
-      const getRateLimit = Effect.fn("GitHub.getRateLimit")(function* () {
-        const now = yield* Clock.currentTimeMillis;
-
-        if (
-          rateLimitCache &&
-          now - rateLimitCache.checkedAtMillis < RATE_LIMIT_TTL_MS
-        ) {
-          return rateLimitCache;
-        }
-
-        const snapshot = yield* fetchRateLimit(now).pipe(
-          Effect.catch(() => Effect.succeed(null)),
-        );
-
-        rateLimitCache = snapshot;
-
-        return snapshot;
-      });
-
-      const guardRateLimit = Effect.fn("GitHub.guardRateLimit")(function* (
-        args: readonly string[],
-        snapshot: RateLimitSnapshot,
-      ): Effect.fn.Return<void, GitHubError> {
-        if (snapshot.remaining > RATE_LIMIT_MIN_REMAINING) return;
-        const now = yield* Clock.currentTimeMillis;
-
-        const resetInSeconds = Math.max(
-          0,
-          snapshot.resetEpochSeconds - Math.floor(now / 1000),
-        );
-
-        if (resetInSeconds <= RATE_LIMIT_MAX_WAIT_SECONDS) {
-          yield* Effect.sleep(Duration.seconds(resetInSeconds + 1));
-          rateLimitCache = null;
-
-          return;
-        }
-
-        return yield* new GitHubError({
-          command: formatGhCommand(args),
-          exitCode: 1,
-          reason: "exit",
-          stdout: "",
-          stderr: `GitHub REST API rate limit exhausted; resets at ${new Date(snapshot.resetEpochSeconds * 1000).toISOString()}`,
-          retryable: false,
-          rateLimited: true,
+          return limited
+            ? ({ type: "output_limit" } as const)
+            : ({ type: "success", output: diagnostics.stdout } as const);
         });
-      });
 
-      const ensureRateLimit = Effect.fn("GitHub.ensureRateLimit")(function* (
-        args: readonly string[],
-      ) {
-        if (args[0] === "api" && args[1] === "rate_limit") return;
-        const snapshot = yield* getRateLimit();
+        const getRateLimit = Effect.fn("GitHub.getRateLimit")(function* () {
+          return yield* Cache.get(rateLimits, "core").pipe(
+            Effect.orElseSucceed(() => null),
+          );
+        });
 
-        if (snapshot) yield* guardRateLimit(args, snapshot);
-      });
+        const ensureRateLimit = Effect.fn("GitHub.ensureRateLimit")(function* (
+          args: readonly string[],
+        ) {
+          if (args[0] === "api" && args[1] === "rate_limit") return null;
+          const snapshot = yield* getRateLimit();
 
-      const runAttempt = (args: readonly string[]) =>
-        execute(args).pipe(
-          Effect.matchEffect({
-            onSuccess: (output) =>
-              Effect.succeed({ type: "success" as const, output }),
-            onFailure: (error) =>
-              Effect.succeed({
-                type: "failure" as const,
-                error,
-              }),
-          }),
-        );
+          if (!snapshot || snapshot.remaining > settings.rateLimitMinRemaining)
+            return null;
+          const now = yield* Clock.currentTimeMillis;
 
-      const runWithRetry = Effect.fn("GitHub.runWithRetry")(function* (
-        args: readonly string[],
-        retries: number,
-        attempt: number,
-        checkRateLimit: boolean,
-      ): Effect.fn.Return<string, GitHubError> {
-        if (checkRateLimit) yield* ensureRateLimit(args);
-        const result: GitHubAttemptResult = yield* runAttempt(args);
+          const resetInSeconds = Math.max(
+            0,
+            snapshot.reset - Math.floor(now / 1000),
+          );
 
-        if (result.type === "success") return result.output;
-        const { error } = result;
+          if (resetInSeconds <= settings.rateLimitMaxWaitSeconds) {
+            yield* Effect.sleep(Duration.seconds(resetInSeconds + 1));
+            yield* Cache.invalidate(rateLimits, "core");
 
-        if (error.rateLimited) rateLimitCache = null;
+            return null;
+          }
 
-        if (attempt >= retries || !error.retryable) return yield* error;
-        yield* Effect.sleep(Duration.seconds(2 ** attempt));
+          return {
+            type: "rate_limit_exhausted",
+            resetEpochSeconds: snapshot.reset,
+          } as const;
+        });
 
-        return yield* runWithRetry(args, retries, attempt + 1, checkRateLimit);
-      });
+        const run = Effect.fn("GitHub.run")(function* (
+          args: readonly string[],
+          opts?: GitHubCommandOptions,
+        ): Effect.fn.Return<string, GitHubError> {
+          const diagnostics: Diagnostics = { stdout: "", stderr: "" };
 
-      const run = Effect.fn("GitHub.run")(function* (
-        args: readonly string[],
-        opts?: GitHubCommandOptions,
-      ): Effect.fn.Return<string, GitHubError> {
-        return yield* runWithRetry(
-          args,
-          opts?.retries ?? DEFAULT_RETRIES,
-          0,
-          opts?.checkRateLimit !== false,
-        );
-      });
+          // Every attempt, including retries, checks the rate limit first.
+          const attempt = Effect.gen(function* () {
+            const exhausted: GitHubAttemptOutcome | null =
+              opts?.checkRateLimit === false
+                ? null
+                : yield* ensureRateLimit(args);
 
-      const json = (args: readonly string[], opts?: GitHubCommandOptions) =>
-        run(args, opts).pipe(
-          Effect.flatMap((output) =>
-            Effect.try({
-              try: () =>
-                Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
-                  output,
-                ),
-              catch: (error) =>
-                new GitHubError({
-                  command: formatGhCommand(args),
-                  exitCode: 1,
-                  reason: "exit",
-                  stdout: output,
-                  stderr:
-                    error instanceof Error ? error.message : String(error),
-                  retryable: false,
-                  rateLimited: false,
-                }),
+            return exhausted ?? (yield* execute(args, diagnostics));
+          }).pipe(
+            Effect.tapError((error) =>
+              isRateLimited(error)
+                ? Cache.invalidate(rateLimits, "core")
+                : Effect.void,
+            ),
+          );
+
+          const outcome = yield* attempt.pipe(
+            Gh.retryTransient({
+              times: opts?.retries ?? settings.retries,
+              schedule: Schedule.exponential("1 second"),
             }),
-          ),
-        );
+            Effect.mapError((error) => toGitHubError(args, error, diagnostics)),
+          );
 
-      return { run, json };
-    }),
-  );
-}
+          return yield* Match.value(outcome).pipe(
+            Match.discriminatorsExhaustive("type")({
+              success: ({ output }) => Effect.succeed(output),
+              output_limit: () =>
+                Effect.fail(
+                  new GitHubError({
+                    command: formatGhCommand(args),
+                    exitCode: -1,
+                    reason: "output_limit",
+                    stdout: diagnostics.stdout,
+                    stderr: diagnostics.stderr,
+                    retryable: false,
+                    rateLimited: false,
+                  }),
+                ),
+              rate_limit_exhausted: ({ resetEpochSeconds }) =>
+                Effect.fail(
+                  new GitHubError({
+                    command: formatGhCommand(args),
+                    exitCode: 1,
+                    reason: "exit",
+                    stdout: "",
+                    stderr: `GitHub REST API rate limit exhausted; resets at ${new Date(resetEpochSeconds * 1000).toISOString()}`,
+                    retryable: false,
+                    rateLimited: true,
+                  }),
+                ),
+            }),
+          );
+        });
 
-function parseRateLimit(
-  raw: string,
-  checkedAtMillis: number,
-): RateLimitSnapshot | null {
-  const [remainingRaw, resetRaw] = raw.trim().split(/\s+/, 2);
-  const remaining = parseInteger(remainingRaw);
-  const resetEpochSeconds = parseInteger(resetRaw);
+        const json = (args: readonly string[], opts?: GitHubCommandOptions) =>
+          run(args, opts).pipe(
+            Effect.flatMap((output) =>
+              Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(
+                output,
+              ).pipe(
+                Effect.mapError(
+                  (error) =>
+                    new GitHubError({
+                      command: formatGhCommand(args),
+                      exitCode: 1,
+                      reason: "exit",
+                      stdout: output,
+                      stderr: error.message,
+                      retryable: false,
+                      rateLimited: false,
+                    }),
+                ),
+              ),
+            ),
+          );
 
-  if (remaining === null || resetEpochSeconds === null) return null;
-
-  return { remaining, resetEpochSeconds, checkedAtMillis };
-}
-
-function parseInteger(value: string | undefined): number | null {
-  if (value === undefined) return null;
-  const parsed = Number.parseInt(value, 10);
-
-  return Number.isFinite(parsed) ? parsed : null;
+        return { run, json };
+      }),
+    );
 }
 
 function toGitHubError(
   args: readonly string[],
-  error: Pick<GitHubError, "exitCode" | "reason" | "stdout" | "stderr">,
+  error: GhError,
+  diagnostics: Diagnostics,
 ): GitHubError {
-  const diagnostic = `${error.stderr}\n${error.stdout}`;
-  const rateLimited = isRateLimitMessage(diagnostic);
+  const stderr =
+    Predicate.isTagged(error, "GhPlatformError") ||
+    Predicate.isTagged(error, "GhDecodeError")
+      ? diagnostics.stderr ||
+        (error.cause instanceof Error
+          ? error.cause.message
+          : String(error.cause))
+      : diagnostics.stderr;
 
   return new GitHubError({
     command: formatGhCommand(args),
-    exitCode: error.exitCode,
-    reason: error.reason,
-    stdout: error.stdout,
-    stderr: error.stderr,
-    retryable: rateLimited || isTransientMessage(diagnostic),
-    rateLimited,
+    exitCode: error instanceof GhCommandError ? error.exitCode : -1,
+    reason: Match.value(error).pipe(
+      Match.tag("GhTimeoutError", () => "timeout" as const),
+      Match.tag("GhPlatformError", () => "spawn" as const),
+      Match.orElse(() => "exit" as const),
+    ),
+    stdout: diagnostics.stdout,
+    stderr,
+    retryable: isTransient(error),
+    rateLimited: isRateLimited(error),
   });
-}
-
-function isRateLimitMessage(stderr: string): boolean {
-  const lower = stderr.toLowerCase();
-
-  return lower.includes("rate limit") || lower.includes("secondary rate");
-}
-
-function isTransientMessage(stderr: string): boolean {
-  const lower = stderr.toLowerCase();
-
-  return [
-    "http 5",
-    "502",
-    "503",
-    "504",
-    "connection reset",
-    "could not resolve host",
-    "network is unreachable",
-    "temporarily unavailable",
-    "timeout",
-    "tls handshake",
-  ].some((pattern) => lower.includes(pattern));
 }
 
 function formatGhCommand(args: readonly string[]): string {

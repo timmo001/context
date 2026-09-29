@@ -20,11 +20,13 @@ import { CommandExecutor } from "../../src/services/CommandExecutor.js";
 const McpTestLayer = Layer.mergeAll(
   ToolRegistrar.layer.pipe(Layer.provideMerge(McpServer.McpServer.layer)),
   CommandExecutor.layer,
-  GitHub.layer.pipe(
-    Layer.provide(ghLayer()),
-    Layer.provide(NodeServices.layer),
-  ),
-);
+  GitHub.layer({
+    retries: 2,
+    rateLimitTtlSeconds: 60,
+    rateLimitMinRemaining: 0,
+    rateLimitMaxWaitSeconds: 60,
+  }).pipe(Layer.provide(ghLayer()), Layer.provide(NodeServices.layer)),
+).pipe(Layer.provideMerge(NodeServices.layer));
 
 describe("MCP context contracts", () => {
   test("normalises and rejects since values like the CLI", () => {

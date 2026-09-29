@@ -5,7 +5,17 @@ import {
 } from "@timmo001/effect-gh";
 import { Deferred, Effect, Layer, Predicate, Sink, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
-import { GitHub } from "../../../src/git/services/GitHub.js";
+import {
+  GitHub,
+  type GitHubSettings,
+} from "../../../src/git/services/GitHub.js";
+
+export const testSettings: GitHubSettings = {
+  retries: 2,
+  rateLimitTtlSeconds: 60,
+  rateLimitMinRemaining: 0,
+  rateLimitMaxWaitSeconds: 60,
+};
 
 export const textStream = (text: string) =>
   Stream.succeed(new TextEncoder().encode(text));
@@ -54,7 +64,7 @@ export const ghFixture = Effect.fn("test.ghFixture")(function* (
     commands,
     spawned,
     releases: () => releases,
-    layer: GitHub.layer.pipe(
+    layer: GitHub.layer(testSettings).pipe(
       Layer.provide(ghLayer(options)),
       Layer.provide(
         Layer.succeed(

@@ -14,7 +14,8 @@ import {
 } from "./cli/completions.js";
 import { gitCliInvocation } from "./cli/git-options.js";
 import { renderHelp } from "./cli/help.js";
-import { GitHub } from "./git/services/GitHub.js";
+import { ENV, envNonNegativeInt } from "./lib/env.js";
+import { GitHub, type GitHubSettings } from "./git/services/GitHub.js";
 import { formatCommandError } from "./lib/rows.js";
 import { CommandExecutor } from "./services/CommandExecutor.js";
 
@@ -125,13 +126,29 @@ function reportCliCause(cause: Cause.Cause<unknown>) {
   });
 }
 
+const gitHubSettings: GitHubSettings = {
+  retries: envNonNegativeInt(ENV.CONTEXT_GITHUB_RETRIES, 2),
+  rateLimitTtlSeconds: envNonNegativeInt(
+    ENV.CONTEXT_GITHUB_RATE_LIMIT_TTL_SECONDS,
+    60,
+  ),
+  rateLimitMinRemaining: envNonNegativeInt(
+    ENV.CONTEXT_GITHUB_RATE_LIMIT_MIN_REMAINING,
+    0,
+  ),
+  rateLimitMaxWaitSeconds: envNonNegativeInt(
+    ENV.CONTEXT_GITHUB_RATE_LIMIT_MAX_WAIT_SECONDS,
+    60,
+  ),
+};
+
 const CliLayers = Layer.mergeAll(
   CommandExecutor.layer,
-  GitHub.layer.pipe(
+  GitHub.layer(gitHubSettings).pipe(
     Layer.provide(ghLayer()),
     Layer.provide(NodeServices.layer),
   ),
-);
+).pipe(Layer.provideMerge(NodeServices.layer));
 
 const cliTeardown: Runtime.Teardown = (exit, onExit) =>
   Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)
