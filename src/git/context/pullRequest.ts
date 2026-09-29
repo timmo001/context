@@ -30,22 +30,22 @@ export interface PullRequestResult {
 const GitHubObject = Schema.Record(Schema.String, Schema.Json);
 
 const stringWithFallback = Schema.String.pipe(
-  Schema.catchDecoding(() => Effect.succeed(Option.some(""))),
+  Schema.catchDecoding(() => Effect.succeedSome("")),
   Schema.withDecodingDefaultKey(Effect.succeed("")),
 );
 
 const booleanWithFallback = Schema.Boolean.pipe(
-  Schema.catchDecoding(() => Effect.succeed(Option.some(false))),
+  Schema.catchDecoding(() => Effect.succeedSome(false)),
   Schema.withDecodingDefaultKey(Effect.succeed(false)),
 );
 
 const jsonArrayWithFallback = Schema.Array(Schema.Json).pipe(
-  Schema.catchDecoding(() => Effect.succeed(Option.some([]))),
+  Schema.catchDecoding(() => Effect.succeedSome([])),
   Schema.withDecodingDefaultKey(Effect.succeed([])),
 );
 
 const GitHubPullRequest = Schema.Struct({
-  number: Schema.Number,
+  number: Schema.Finite,
   title: Schema.String,
   state: stringWithFallback,
   url: stringWithFallback,
@@ -63,7 +63,7 @@ const GitHubPullRequest = Schema.Struct({
 const GitHubAuthor = Schema.Struct({ login: stringWithFallback });
 
 const authorWithFallback = GitHubAuthor.pipe(
-  Schema.catchDecoding(() => Effect.succeed(Option.some({ login: "" }))),
+  Schema.catchDecoding(() => Effect.succeedSome({ login: "" })),
   Schema.withDecodingDefaultKey(Effect.succeed({ login: "" })),
 );
 
@@ -386,9 +386,9 @@ export function collectPullRequest(
         retries: 0,
       })
       .pipe(
-        Effect.matchEffect({
-          onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
-          onFailure: (error) => Effect.succeed({ ok: false as const, error }),
+        Effect.match({
+          onSuccess: (value) => ({ ok: true as const, value }),
+          onFailure: (error) => ({ ok: false as const, error }),
         }),
       );
 
@@ -450,9 +450,9 @@ export function collectPullRequest(
           retries: 0,
         })
         .pipe(
-          Effect.matchEffect({
-            onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
-            onFailure: (error) => Effect.succeed({ ok: false as const, error }),
+          Effect.match({
+            onSuccess: (value) => ({ ok: true as const, value }),
+            onFailure: (error) => ({ ok: false as const, error }),
           }),
         );
 

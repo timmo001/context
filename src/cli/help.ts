@@ -139,5 +139,7 @@ function renderRootHelp(): string {
 export function renderHelp(commandName?: string): string {
   if (!commandName) return renderRootHelp();
 
-  return renderCommand(getCliCommand(commandName) ?? getCliCommand("help")!);
+  const command = getCliCommand(commandName) ?? getCliCommand("help");
+
+  return command ? renderCommand(command) : renderRootHelp();
 }

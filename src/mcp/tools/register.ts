@@ -19,10 +19,7 @@ export const READONLY_OPEN_WORLD_HINTS = {
 type ReadonlyHints = typeof READONLY_HINTS | typeof READONLY_OPEN_WORLD_HINTS;
 
 /** Options describing a single raw-text MCP tool registration. */
-export interface ToolRegistration<
-  S extends Schema.Codec<unknown, unknown, never, never>,
-  E,
-> {
+export interface ToolRegistration<S extends Schema.Codec<unknown, unknown>, E> {
   /** Tool name as exposed to MCP clients. */
   readonly name: string;
   /** Human-readable tool description. */
@@ -37,10 +34,7 @@ export interface ToolRegistration<
 
 /** Service for registering raw-text tools on the current MCP server. */
 export interface ToolRegistrarService {
-  readonly register: <
-    S extends Schema.Codec<unknown, unknown, never, never>,
-    E,
-  >(
+  readonly register: <S extends Schema.Codec<unknown, unknown>, E>(
     options: ToolRegistration<S, E>,
   ) => Effect.Effect<void>;
 }

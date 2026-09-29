@@ -236,7 +236,7 @@ function truncationRow(truncation: StackTruncation): string {
       : `observed=${truncation.observed}`,
     truncation.omitted === undefined ? null : `omitted=${truncation.omitted}`,
     truncation.subject === undefined ? null : `subject=${truncation.subject}`,
-  ].filter((value): value is string => value !== null);
+  ].filter((value) => value !== null);
 
   return `${truncation.reason}: ${details.join(" ")}`;
 }

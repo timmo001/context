@@ -15,15 +15,12 @@ interface ManifestTable {
   readonly [key: string]: ManifestValue;
 }
 
-const ManifestValueSchema: Schema.Codec<
-  ManifestValue,
-  ManifestValue,
-  never,
-  never
-> = Schema.suspend(() =>
+const ManifestValueSchema: Schema.Codec<ManifestValue> = Schema.suspend(() =>
   Schema.Union([
     Schema.Null,
     Schema.String,
+    // TOML floats may legitimately be inf or nan.
+    // @effect-diagnostics-next-line schemaNumber:off
     Schema.Number,
     Schema.Boolean,
     Schema.BigInt,
@@ -33,12 +30,10 @@ const ManifestValueSchema: Schema.Codec<
   ]),
 );
 
-const ManifestTableSchema: Schema.Codec<
-  ManifestTable,
-  ManifestTable,
-  never,
-  never
-> = Schema.Record(Schema.String, ManifestValueSchema);
+const ManifestTableSchema: Schema.Codec<ManifestTable> = Schema.Record(
+  Schema.String,
+  ManifestValueSchema,
+);
 
 const isManifestTable = Schema.is(ManifestTableSchema);
 
