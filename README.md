@@ -8,7 +8,11 @@ prefer tools and resources.
 
 Full setup, CLI reference, MCP usage, and integration docs are published at <https://context.timmo.dev>.
 
-Agents can use [`context-cli`](.agents/skills/context-cli/SKILL.md) for shell commands or [`context-mcp`](.agents/skills/context-mcp/SKILL.md) for MCP tools.
+Agents can use [`context-cli`](.agents/skills/context-cli/SKILL.md) for shell commands or [`context-mcp`](.agents/skills/context-mcp/SKILL.md) for MCP tools. Install them with:
+
+```sh
+npx skills add timmo001/context
+```
 
 Stable releases use a manually chosen `YYYYMMDD.N` version. Create a blank
 GitHub draft, optionally generate its release notes, then publish it to build
