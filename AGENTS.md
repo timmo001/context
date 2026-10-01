@@ -23,9 +23,9 @@ This repo contains the standalone `context` CLI and MCP server.
 
 - This repository owns `.agents/skills/context-cli/SKILL.md` and `.agents/skills/context-mcp/SKILL.md`.
 - `timmo001/skills` imports only `context-cli` as an unchanged snapshot. Edit the source here, not the imported or installed copy. `context-mcp` remains available from this repository for explicit MCP use.
-- Update order: `context` source -> `skills` import -> dotfiles skills submodule -> `dot stow`.
+- Update order: `context` source -> `skills` import -> skills `main` -> `dot update`.
 - After an authorised source commit and push, run `./dist/skill-maintenance import context-cli --apply` in the skills checkout. Review and validate the imported snapshot and its `imports.json` revision before committing and pushing skills.
-- Then advance `agents/.agents/skills` in dotfiles to that skills commit, commit the pointer with any companion command changes, and run `dot stow`. Each commit or push still requires user authorisation.
+- Then run `dot update`, which fetches the latest skills `main` and installs the new snapshot. Each commit or push still requires user authorisation.
 
 ## Docs Dev Server
 
