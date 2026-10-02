@@ -15,9 +15,11 @@ overrides:
   deb:
     depends:
       - libc6
+      - git
   rpm:
     depends:
       - glibc
+      - git
 contents:
   - src: dist/release/root/context
     dst: /usr/bin/context
