@@ -49,7 +49,7 @@ jobs:
   publish:
     name: Publish AUR (context-git)
     needs: prepare
-    uses: timmo001/workflows/.github/workflows/publish-aur.yml@36527a2230bed48409ccd595b17f8344efe0acdd # 20261001.1
+    uses: timmo001/workflows/.github/workflows/publish-aur.yml@a7b34d53ef8f83b1763fd0d3257a0168416e23ab # 20261001.2
     with:
       package-name: context-git
       artifact-name: aur-context-git-${{ github.run_id }}-${{ github.run_attempt }}
