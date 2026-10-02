@@ -19,24 +19,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  lint-arch-pkgbuild:
-    name: Lint arch pkgbuild
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Docker
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-
-      - name: Validate pkgbuild with Arch Linux container
-        run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace archlinux:latest bash -lc '
-            pacman -Sy --noconfirm namcap
-            cd /workspace
-            find .scripts -name "PKGBUILD*" -print0 | while IFS= read -r -d "" pkgbuild; do
-              echo "Validating $pkgbuild"
-              namcap "$pkgbuild"
-            done
-          '
+  pkgbuild:
+    uses: timmo001/workflows/.github/workflows/lint-arch-pkgbuild.yml@a7b34d53ef8f83b1763fd0d3257a0168416e23ab # 20261001.2

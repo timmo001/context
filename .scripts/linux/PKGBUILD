@@ -7,7 +7,6 @@ pkgdesc="Standalone CLI and MCP server for deterministic repository context (git
 arch=('x86_64' 'aarch64')
 url="https://github.com/timmo001/context"
 license=('Apache-2.0')
-keywords=('mcp' 'cli' 'context' 'git' 'agent')
 makedepends=('git' 'bun')
 depends=('glibc')
 provides=('context')

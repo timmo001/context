@@ -10,6 +10,9 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  skills:
+    uses: timmo001/workflows/.github/workflows/lint-agent-skills.yml@a7b34d53ef8f83b1763fd0d3257a0168416e23ab # 20261001.2
+
   actionlint:
     uses: timmo001/workflows/.github/workflows/lint-actionlint.yml@a7b34d53ef8f83b1763fd0d3257a0168416e23ab # 20261001.2
 
