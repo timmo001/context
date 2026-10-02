@@ -63,6 +63,8 @@ jobs:
       !github.event.release.prerelease
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     uses: timmo001/workflows/.github/workflows/release-bun-cli-linux.yml@a7b34d53ef8f83b1763fd0d3257a0168416e23ab # 20261001.2
     with:
       binary-name: context
@@ -82,9 +84,10 @@ jobs:
       source-ref: >-
         ${{ inputs.release-version || github.event.release.tag_name }}
       existing-release: true
+      attest: true
 
-  prepare-aur:
-    name: Prepare AUR package (context-bin)
+  prepare-arch-bin:
+    name: Prepare Arch package (context-bin)
     needs: release
     runs-on: ubuntu-latest
     env:
@@ -96,38 +99,57 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ env.RELEASE_VERSION }}
-      - name: Prepare context-bin
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          .scripts/linux/prepare-aur-bin.sh "$RELEASE_VERSION"
-          "${{ runner.temp }}/aur-package"
-      - name: Upload context-bin
+
+      - name: Render PKGBUILD
+        uses: timmo001/workflows/.github/actions/prepare-arch-bin@a7b34d53ef8f83b1763fd0d3257a0168416e23ab # 20261001.2
+        with:
+          releaseVersion: ${{ env.RELEASE_VERSION }}
+          packageName: context
+          pkgbuildTemplate: .scripts/linux/PKGBUILD.bin
+          outputDirectory: ${{ runner.temp }}/arch-bin
+          completionsArguments: "completions {shell}"
+          extraFiles: LICENSE
+
+      - name: Upload package files
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: aur-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/aur-package
+          name: arch-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/arch-bin
           if-no-files-found: error
           retention-days: 1
 
-  publish-arch:
-    name: Publish Arch package (context-bin)
-    needs: prepare-aur
+  arch-bin:
+    name: Arch package (context-bin)
+    needs: prepare-arch-bin
     uses: timmo001/workflows/.github/workflows/build-arch-package.yml@a7b34d53ef8f83b1763fd0d3257a0168416e23ab # 20261001.2
     with:
       package-name: context-bin
-      package-files-artifact-name: aur-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      package-files-artifact-name: arch-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
       pkgbuild-path: PKGBUILD
     secrets:
       ARCH_REPO_DISPATCH_TOKEN: ${{ secrets.ARCH_REPO_DISPATCH_TOKEN }}
 
+  attach-arch-bin:
+    name: Attach Arch package (context-bin)
+    needs: arch-bin
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: timmo001/workflows/.github/workflows/attach-release-arch-package.yml@a7b34d53ef8f83b1763fd0d3257a0168416e23ab # 20261001.2
+    with:
+      artifact-name: ${{ needs.arch-bin.outputs.artifact-name }}
+      release-tag: >-
+        ${{ inputs.release-version || github.event.release.tag_name }}
+      package-name: context-bin
+
   publish-aur:
     name: Publish AUR (context-bin)
-    needs: prepare-aur
+    needs: prepare-arch-bin
     uses: timmo001/workflows/.github/workflows/publish-aur.yml@a7b34d53ef8f83b1763fd0d3257a0168416e23ab # 20261001.2
     with:
       package-name: context-bin
-      artifact-name: aur-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact-name: arch-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
       auxiliary-file-paths: |-
         context.bash
         context.fish
