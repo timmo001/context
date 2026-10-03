@@ -21,6 +21,7 @@
   "ignores": [
     "**/node_modules",
     "**/node_modules/**",
+    ".agents/skills/**",
     "docs/dist",
     "docs/dist/**",
     "docs/.astro",

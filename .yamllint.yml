@@ -5,6 +5,7 @@
 extends: default
 
 ignore: |
+  .agents/skills/
   node_modules/
   docs/dist/
   docs/.astro/
