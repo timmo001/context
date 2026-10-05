@@ -24,6 +24,6 @@ permissions:
 
 jobs:
   pkgbuild:
-    uses: timmo001/workflows/.github/workflows/lint-arch-pkgbuild.yml@a76c7b0547b8e4c16fdbbdb9d2ba3cbab144b168 # 20261002.1
+    uses: timmo001/workflows/.github/workflows/lint-arch-pkgbuild.yml@82ee28374d3471231113dabc3dd436f65a47132f # 20261004.0
     with:
       exclude-rules: redundant_makedepends
