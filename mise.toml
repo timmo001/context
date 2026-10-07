@@ -6,7 +6,7 @@ bun = "1.4.2"
 
 [tasks.install]
 description = "Install context dependencies"
-run = "bun install"
+run = "bun install --frozen-lockfile"
 
 [tasks.dev]
 description = "Run context in watch mode"
@@ -50,7 +50,7 @@ depends = ["lint", "typecheck", "format:check"]
 [tasks."docs:install"]
 description = "Install docs dependencies"
 dir = "docs"
-run = "bun install"
+run = "bun install --frozen-lockfile"
 
 [tasks."docs:dev"]
 description = "Run docs dev server"
@@ -117,4 +117,6 @@ run = "bun run gen"
 
 [tasks."docs:check"]
 description = "Regenerate and build docs"
-depends = ["docs:gen", "docs:build"]
+depends = ["docs:gen", "docs:install"]
+dir = "docs"
+run = "bun run build"

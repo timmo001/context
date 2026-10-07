@@ -35,11 +35,9 @@ This repo contains the standalone `context` CLI and MCP server.
 
 ## Validation
 
-Run these after source changes:
+Run these after source changes. Regenerate first, because the generators rewrite docs that `format:check` and the docs build read:
 
 ```bash
-mise run check
-mise run build
 mise run docs:gen
-mise run docs:build
+mise run check ::: test ::: build ::: docs:build
 ```
