@@ -15,6 +15,13 @@
       "skillPath": "code-review/SKILL.md",
       "computedHash": "bc6af04ecee3f4a40dcacc77a8c6cd3046f3982159b9469eae49f30bb14d02cd"
     },
+    "docs-kit": {
+      "source": "timmo001/docs-kit",
+      "ref": "ab99a7c73c7531c674ee8ab4b9045f44ec3f9190",
+      "sourceType": "github",
+      "skillPath": "skills/docs-kit/SKILL.md",
+      "computedHash": "9cd9c1ee5d60e3a36ca87e4e31f07ec682738aa5e8dede7cbd82dcc5121cc1b3"
+    },
     "effect": {
       "source": "kitlangton/skills",
       "ref": "a1537921969c7cfc4d985befaba7752313da0fce",
