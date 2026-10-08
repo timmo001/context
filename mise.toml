@@ -58,26 +58,26 @@ depends = ["docs:install"]
 dir = "docs"
 run = "bun run dev"
 
-[tasks."docs:dev:serve"]
-description = "Run docs dev server in the background"
-depends = ["docs:install"]
-dir = "docs"
-run = "bun run gen && bunx astro dev --background"
+[tasks."serve:docs"]
+description = "Start the docs dev server in the background through Pitchfork"
+depends = ["docs:gen", "docs:install"]
+run = "pitchfork start docs"
 
-[tasks."docs:dev:status"]
-description = "Show docs dev server status"
-dir = "docs"
-run = "bunx astro dev status"
+[tasks."serve:docs:status"]
+description = "Show the background docs dev server status"
+run = "pitchfork status docs"
 
-[tasks."docs:dev:logs"]
-description = "Show docs dev server logs"
-dir = "docs"
-run = "bunx astro dev logs"
+[tasks."serve:docs:logs"]
+description = "Follow the background docs dev server logs"
+run = "pitchfork logs -t docs"
 
-[tasks."docs:dev:stop"]
-description = "Stop docs dev server"
-dir = "docs"
-run = "bunx astro dev stop"
+[tasks."serve:docs:restart"]
+description = "Restart the background docs dev server"
+run = "pitchfork restart docs"
+
+[tasks."serve:docs:stop"]
+description = "Stop the background docs dev server"
+run = "pitchfork stop docs"
 
 [tasks."docs:build"]
 description = "Build docs site"
