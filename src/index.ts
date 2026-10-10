@@ -14,7 +14,12 @@ import {
 } from "./cli/completions.js";
 import { gitCliInvocation } from "./cli/git-options.js";
 import { renderHelp } from "./cli/help.js";
-import { ENV, envNonNegativeInt } from "./lib/env.js";
+import {
+  DEFAULT_COMMAND_MAX_OUTPUT_BYTES,
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  ENV,
+  envNonNegativeInt,
+} from "./lib/env.js";
 import { GitHub, type GitHubSettings } from "./git/services/GitHub.js";
 import { formatCommandError } from "./lib/rows.js";
 import { CommandExecutor } from "./services/CommandExecutor.js";
@@ -145,7 +150,12 @@ const gitHubSettings: GitHubSettings = {
 const CliLayers = Layer.mergeAll(
   CommandExecutor.layer,
   GitHub.layer(gitHubSettings).pipe(
-    Layer.provide(ghLayer()),
+    Layer.provide(
+      ghLayer({
+        timeout: DEFAULT_COMMAND_TIMEOUT_MS,
+        maxOutputBytes: DEFAULT_COMMAND_MAX_OUTPUT_BYTES,
+      }),
+    ),
     Layer.provide(NodeServices.layer),
   ),
 ).pipe(Layer.provideMerge(NodeServices.layer));

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Cli, PullRequest } from "@timmo001/effect-gh";
 import {
   Cause,
   Clock,
@@ -33,23 +34,39 @@ const rateLimitJson = (remaining: number, reset = 9_999_999_999) => {
   return `${JSON.stringify({ resources: { core: resource, graphql: resource, search: resource } })}\n`;
 };
 
+// A typed operation whose result is easy to assert on.
+const probe = Cli.version();
+
+const version = "gh version 2.81.0 (2026-10-01)\n";
+
 describe("GitHub", () => {
-  test("passes literal arguments and inherits SDK cwd and environment settings", async () => {
+  test("passes typed operation arguments and inherits SDK cwd and environment settings", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
-        const fixture = yield* ghFixture(() => ({ stdout: textStream("ok") }), {
-          cwd: "/example/repository",
-          env: { GH_HOST: "github.example", GH_TOKEN: "test-token" },
-        });
+        const fixture = yield* ghFixture(
+          () => ({ stdout: textStream('{"number":7}') }),
+          {
+            cwd: "/example/repository",
+            env: { GH_HOST: "github.example", GH_TOKEN: "test-token" },
+          },
+        );
 
         const github = yield* GitHub.pipe(Effect.provide(fixture.layer));
         expect(fixture.commands).toHaveLength(0);
-        yield* github.run(["pr", "view", "literal; argument"], {
-          checkRateLimit: false,
-        });
+
+        expect(
+          yield* github.read(
+            "gh pr view",
+            PullRequest.get({
+              selector: "literal; argument",
+              fields: ["number"],
+            }),
+            { checkRateLimit: false },
+          ),
+        ).toEqual({ number: 7 });
         expect(fixture.commands[0]).toMatchObject({
           command: "gh",
-          args: ["pr", "view", "literal; argument"],
+          args: ["pr", "view", "--json=number", "--", "literal; argument"],
           options: {
             cwd: "/example/repository",
             extendEnv: true,
@@ -67,113 +84,72 @@ describe("GitHub", () => {
     );
   });
 
-  test("retains stderr beyond the SDK error bound for retry classification", async () => {
-    const stderr = `HTTP 503\n${"x".repeat(70_000)}`;
-
+  test("keeps command output on failures for retry classification", async () => {
     const github = await makeGitHub(() =>
-      failure(stderr, { stdout: "response" }),
+      failure("HTTP 503", { stdout: "response" }),
     );
 
     const error = await Effect.runPromise(
       github
-        .run(["api", "user"], {
-          checkRateLimit: false,
-          retries: 0,
-        })
+        .read("gh --version", probe, { checkRateLimit: false, retries: 0 })
         .pipe(Effect.flip),
     );
 
-    expect(error.stderr).toBe(stderr);
+    expect(error.stderr).toBe("HTTP 503");
     expect(error.stdout).toBe("response");
     expect(error.retryable).toBe(true);
   });
 
-  test.each(["stdout", "stderr", "combined"])(
-    "bounds %s output and closes the child scope",
-    async (channel) => {
-      await Effect.runPromise(
-        Effect.gen(function* () {
-          const limit = DEFAULT_COMMAND_MAX_OUTPUT_BYTES;
-
-          const fixture = yield* ghFixture(() => ({
-            stdout: textStream(
-              channel === "stderr"
-                ? ""
-                : "x".repeat(
-                    channel === "combined" ? Math.floor(limit / 2) : limit + 1,
-                  ),
-            ),
-            stderr: textStream(
-              channel === "stdout"
-                ? ""
-                : "y".repeat(
-                    channel === "combined"
-                      ? limit - Math.floor(limit / 2) + 1
-                      : limit + 1,
-                  ),
-            ),
-            exitCode: Effect.never,
-          }));
-
-          const github = yield* GitHub.pipe(Effect.provide(fixture.layer));
-
-          const error = yield* github
-            .run(["pr", "view"], { checkRateLimit: false, retries: 0 })
-            .pipe(Effect.flip);
-
-          expect(error.reason).toBe("output_limit");
-          expect(
-            Buffer.byteLength(error.stdout) + Buffer.byteLength(error.stderr),
-          ).toBe(limit);
-          expect(fixture.releases()).toBe(1);
-        }),
-      );
-    },
-  );
-
-  test("decodes UTF-8 across pipe chunks", async () => {
+  test("stops at the stdout limit and closes the child scope", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
-        const fixture = yield* ghFixture(() => ({
-          stdout: Stream.fromIterable([
-            new Uint8Array([0xc3]),
-            new Uint8Array([0xa9]),
-          ]),
-        }));
+        const limit = DEFAULT_COMMAND_MAX_OUTPUT_BYTES;
+
+        const fixture = yield* ghFixture(
+          () => ({
+            stdout: textStream("x".repeat(limit + 1)),
+            exitCode: Effect.never,
+          }),
+          { maxOutputBytes: limit },
+        );
 
         const github = yield* GitHub.pipe(Effect.provide(fixture.layer));
-        expect(
-          yield* github.run(["pr", "view"], { checkRateLimit: false }),
-        ).toBe("é");
+
+        const error = yield* github
+          .read("gh --version", probe, { checkRateLimit: false, retries: 0 })
+          .pipe(Effect.flip);
+
+        expect(error.reason).toBe("output_limit");
+        expect(fixture.releases()).toBe(1);
       }),
     );
   });
 
-  test("times out after the configured deadline and retains partial output", async () => {
+  test("times out after the configured deadline", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const awaitingExit = yield* Deferred.make<void>();
 
-        const fixture = yield* ghFixture(() => ({
-          stdout: textStream("partial"),
-          stderr: textStream("diagnostic"),
-          exitCode: Deferred.succeed(awaitingExit, undefined).pipe(
-            Effect.andThen(Effect.never),
-          ),
-        }));
+        const fixture = yield* ghFixture(
+          () => ({
+            stdout: textStream("partial"),
+            exitCode: Deferred.succeed(awaitingExit, undefined).pipe(
+              Effect.andThen(Effect.never),
+            ),
+          }),
+          { timeout: DEFAULT_COMMAND_TIMEOUT_MS },
+        );
 
         const github = yield* GitHub.pipe(Effect.provide(fixture.layer));
 
         const fiber = yield* github
-          .run(["pr", "view"], { checkRateLimit: false, retries: 0 })
+          .read("gh --version", probe, { checkRateLimit: false, retries: 0 })
           .pipe(Effect.flip, Effect.forkChild);
 
         yield* Deferred.await(awaitingExit);
         yield* TestClock.adjust(DEFAULT_COMMAND_TIMEOUT_MS);
         expect(yield* Fiber.join(fiber)).toMatchObject({
           reason: "timeout",
-          stdout: "partial",
-          stderr: "diagnostic",
           exitCode: -1,
         });
         expect(fixture.releases()).toBe(1);
@@ -192,7 +168,7 @@ describe("GitHub", () => {
         const github = yield* GitHub.pipe(Effect.provide(fixture.layer));
 
         const fiber = yield* github
-          .run(["pr", "view"], { checkRateLimit: false })
+          .read("gh --version", probe, { checkRateLimit: false })
           .pipe(Effect.forkChild);
 
         yield* Deferred.await(fixture.spawned);
@@ -225,7 +201,7 @@ describe("GitHub", () => {
         const github = yield* GitHub.pipe(Effect.provide(fixture.layer));
 
         const error = yield* github
-          .run(["pr", "view"], { checkRateLimit: false, retries: 0 })
+          .read("gh --version", probe, { checkRateLimit: false, retries: 0 })
           .pipe(Effect.flip);
 
         expect(error).toMatchObject({
@@ -245,15 +221,17 @@ describe("GitHub", () => {
     const github = await makeGitHub((args) => {
       commands.push([...args]);
 
-      return success(isRateLimitRead(args) ? rateLimitJson(100) : "ok\n");
+      return success(isRateLimitRead(args) ? rateLimitJson(100) : version);
     });
 
-    expect(await Effect.runPromise(github.run(["pr", "view"]))).toBe("ok\n");
-    expect(await Effect.runPromise(github.run(["pr", "checks"]))).toBe("ok\n");
+    expect(await Effect.runPromise(github.read("first", probe))).toBe("2.81.0");
+    expect(await Effect.runPromise(github.read("second", probe))).toBe(
+      "2.81.0",
+    );
     expect(commands).toEqual([
       ["api", "--method", "GET", "--", "rate_limit"],
-      ["pr", "view"],
-      ["pr", "checks"],
+      ["--version"],
+      ["--version"],
     ]);
   });
 
@@ -265,16 +243,16 @@ describe("GitHub", () => {
 
       return isRateLimitRead(args)
         ? failure("gh is unavailable")
-        : success("result");
+        : success(version);
     });
 
     expect(
-      await Effect.runPromise(github.run(["pr", "view"], { retries: 0 })),
-    ).toBe("result");
+      await Effect.runPromise(github.read("probe", probe, { retries: 0 })),
+    ).toBe("2.81.0");
     expect(commands).toHaveLength(2);
   });
 
-  test("rejects an exhausted rate limit before running the command", async () => {
+  test("rejects an exhausted rate limit before running the operation", async () => {
     const commands: string[][] = [];
 
     const github = await makeGitHub((args) => {
@@ -284,12 +262,12 @@ describe("GitHub", () => {
     });
 
     const error = await Effect.runPromise(
-      github.run(["pr", "view"]).pipe(Effect.flip),
+      github.read("gh --version", probe).pipe(Effect.flip),
     );
 
     expect(error).toHaveProperty("_tag", "GitHubError");
     expect(error).toMatchObject({
-      command: "gh pr view",
+      command: "gh --version",
       exitCode: 1,
       reason: "exit",
       stdout: "",
@@ -308,14 +286,14 @@ describe("GitHub", () => {
     const github = await makeGitHub((args) => {
       commands.push([...args]);
 
-      return success("result");
+      return success(version);
     });
 
     await Effect.runPromise(
-      github.run(["pr", "view"], { checkRateLimit: false }),
+      github.read("probe", probe, { checkRateLimit: false }),
     );
 
-    expect(commands).toEqual([["pr", "view"]]);
+    expect(commands).toEqual([["--version"]]);
   });
 
   test("classifies rate-limit and transient command failures", async () => {
@@ -328,16 +306,13 @@ describe("GitHub", () => {
 
     const error = await Effect.runPromise(
       github
-        .run(["pr", "view"], {
-          checkRateLimit: false,
-          retries: 0,
-        })
+        .read("gh --version", probe, { checkRateLimit: false, retries: 0 })
         .pipe(Effect.flip),
     );
 
     expect(error).toHaveProperty("_tag", "GitHubError");
     expect(error).toMatchObject({
-      command: "gh pr view",
+      command: "gh --version",
       exitCode: 7,
       reason: "exit",
       stdout: "response body",
@@ -358,7 +333,7 @@ describe("GitHub", () => {
 
     const error = await Effect.runPromise(
       github
-        .run(["pr", "view"], { checkRateLimit: false, retries: 2 })
+        .read("probe", probe, { checkRateLimit: false, retries: 2 })
         .pipe(Effect.flip),
     );
 
@@ -378,7 +353,7 @@ describe("GitHub", () => {
 
       return attempts === 1
         ? failure("HTTP 503 temporarily unavailable")
-        : success("result");
+        : success(version);
     });
 
     const result = await Effect.runPromise(
@@ -387,7 +362,7 @@ describe("GitHub", () => {
         const retryStarted = yield* Deferred.make<void>();
 
         const fiber = yield* github
-          .run(["pr", "view"], { checkRateLimit: false, retries: 1 })
+          .read("probe", probe, { checkRateLimit: false, retries: 1 })
           .pipe(
             Effect.provideService(Clock.Clock, {
               currentTimeMillisUnsafe: () => clock.currentTimeMillisUnsafe(),
@@ -413,7 +388,7 @@ describe("GitHub", () => {
       }).pipe(Effect.provide(TestClock.layer())),
     );
 
-    expect(result).toBe("result");
+    expect(result).toBe("2.81.0");
     expect(attempts).toBe(2);
   });
 
@@ -432,15 +407,15 @@ describe("GitHub", () => {
 
       return commands === 1
         ? failure("API rate limit exceeded")
-        : success("result");
+        : success(version);
     });
 
     await Effect.runPromise(
-      github.run(["pr", "view"], { retries: 0 }).pipe(Effect.flip),
+      github.read("probe", probe, { retries: 0 }).pipe(Effect.flip),
     );
     expect(
-      await Effect.runPromise(github.run(["pr", "view"], { retries: 0 })),
-    ).toBe("result");
+      await Effect.runPromise(github.read("probe", probe, { retries: 0 })),
+    ).toBe("2.81.0");
 
     expect(rateLimitChecks).toBe(2);
     expect(commands).toBe(2);
@@ -465,7 +440,7 @@ describe("GitHub", () => {
     const error = await Effect.runPromise(
       Effect.gen(function* () {
         const fiber = yield* github
-          .run(["pr", "view"], { retries: 1 })
+          .read("probe", probe, { retries: 1 })
           .pipe(Effect.flip, Effect.forkChild);
 
         yield* Effect.yieldNow.pipe(Effect.repeat({ times: 20 }));
@@ -481,21 +456,23 @@ describe("GitHub", () => {
     expect(error.stderr).toContain("rate limit exhausted");
   });
 
-  test("reports invalid JSON as a non-retryable GitHub error", async () => {
+  test("reports an undecodable response as a non-retryable GitHub error", async () => {
     const github = await makeGitHub(() => success("not json"));
 
     const error = await Effect.runPromise(
-      github.json(["pr", "view"], { checkRateLimit: false }).pipe(Effect.flip),
+      github
+        .read("gh pr view", PullRequest.get({ fields: ["number"] }), {
+          checkRateLimit: false,
+        })
+        .pipe(Effect.flip),
     );
 
     expect(error).toHaveProperty("_tag", "GitHubError");
     expect(error).toMatchObject({
       command: "gh pr view",
       reason: "exit",
-      stdout: "not json",
       retryable: false,
       rateLimited: false,
     });
-    expect(error.stderr).toContain("JSON");
   });
 });

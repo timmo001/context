@@ -7,6 +7,7 @@
  * no PR for the branch, network error) resolves to `null` with a warning so the
  * branch-context snapshot never fails on the pull request lookup.
  */
+import { PullRequest } from "@timmo001/effect-gh";
 import { Effect, Option, Schema } from "effect";
 import { GitHub } from "../services/GitHub.js";
 import type {
@@ -26,8 +27,6 @@ export interface PullRequestResult {
   /** Non-fatal warnings raised during collection. */
   readonly warnings: readonly string[];
 }
-
-const GitHubObject = Schema.Record(Schema.String, Schema.Json);
 
 const stringWithFallback = Schema.String.pipe(
   Schema.catchDecoding(() => Effect.succeedSome("")),
@@ -343,27 +342,49 @@ function parseLabels(
     .toArray();
 }
 
-/** Build the `--json` field list for `gh pr view` based on enabled sections. */
-function prViewFields(options: BranchContextOptions): string {
-  const fields = [
-    "number",
-    "state",
-    "title",
-    "url",
-    "isDraft",
-    "mergeStateStatus",
-    "headRefName",
-    "baseRefName",
-    "reviewDecision",
-    "body",
-    "comments",
-  ];
+/**
+ * Fields read from `gh pr view`. Labels and reviews are always requested so the
+ * typed result keeps one shape; sections that are off ignore them.
+ */
+const prViewFields = [
+  "number",
+  "state",
+  "title",
+  "url",
+  "isDraft",
+  "mergeStateStatus",
+  "headRefName",
+  "baseRefName",
+  "reviewDecision",
+  "body",
+  "comments",
+  "labels",
+  "reviews",
+] as const;
 
-  if (options.labels) fields.push("labels");
+/** `[HOST/]OWNER/REPO` for a pull request URL, as gh's `--repo` expects. */
+function repositoryFromUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const [owner, name] = parsed.pathname.split("/").filter(Boolean);
 
-  if (options.reviews) fields.push("reviews");
+    if (!owner || !name) return null;
 
-  return fields.join(",");
+    return parsed.hostname === "github.com"
+      ? `${owner}/${name}`
+      : `${parsed.hostname}/${owner}/${name}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Render typed check results one per line, like `gh pr checks` output. */
+function renderChecks(checks: PullRequest.ChecksResult): string {
+  return checks.checks
+    .map((check) =>
+      [check.name, check.bucket, check.link ?? ""].join("\t").trimEnd(),
+    )
+    .join("\n");
 }
 
 /**
@@ -381,7 +402,7 @@ export function collectPullRequest(
     const github = yield* GitHub;
 
     const viewResult = yield* github
-      .json(["pr", "view", "--json", prViewFields(options)], {
+      .read("gh pr view", PullRequest.get({ fields: prViewFields }), {
         checkRateLimit: false,
         retries: 0,
       })
@@ -405,15 +426,6 @@ export function collectPullRequest(
         warnings: [
           `Unable to read PR details: ${githubFailureDetail(viewResult.error.stderr, viewResult.error.command)}`,
         ],
-      };
-    }
-
-    if (
-      Option.isNone(Schema.decodeUnknownOption(GitHubObject)(viewResult.value))
-    ) {
-      return {
-        data: null,
-        warnings: ["Unable to read PR details: unexpected response."],
       };
     }
 
@@ -443,12 +455,16 @@ export function collectPullRequest(
 
     let checks: string | undefined;
 
-    if (options.checks) {
+    const repository = repositoryFromUrl(viewResult.value.url);
+
+    if (options.checks && repository) {
+      // Pending and failing checks are data in the typed result, not failures.
       const checksResult = yield* github
-        .run(["pr", "checks", String(summary.number)], {
-          checkRateLimit: false,
-          retries: 0,
-        })
+        .read(
+          "gh pr checks",
+          PullRequest.checks(summary.number, { repository }),
+          { checkRateLimit: false, retries: 0 },
+        )
         .pipe(
           Effect.match({
             onSuccess: (value) => ({ ok: true as const, value }),
@@ -456,13 +472,10 @@ export function collectPullRequest(
           }),
         );
 
-      // `gh pr checks` exits non-zero when checks are pending or failing, so its
-      // stdout is still useful; keep it and only warn when there is no output.
       if (checksResult.ok) {
-        checks = checksResult.value.trim();
+        checks = renderChecks(checksResult.value);
       } else {
-        checks =
-          checksResult.error.stdout.trim() || checksResult.error.stderr.trim();
+        checks = checksResult.error.stderr.trim();
 
         if (!checks) warnings.push("Unable to read PR checks.");
       }

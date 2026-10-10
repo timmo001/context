@@ -8,11 +8,14 @@ import {
 import { GitHub, type GitHubService } from "../../src/git/services/GitHub.js";
 import { failure, makeGitHub, success } from "./helpers/gh.js";
 
+const fields =
+  "--json=number,state,title,url,isDraft,mergeStateStatus,headRefName,baseRefName,reviewDecision,body,comments,labels,reviews";
+
 const summaryResponse = {
   number: 42,
   state: "OPEN",
   title: "Improve context",
-  url: "https://example.invalid/pull/42",
+  url: "https://github.com/owner/repo/pull/42",
   isDraft: false,
   mergeStateStatus: "CLEAN",
   headRefName: "feature",
@@ -24,6 +27,14 @@ const summaryResponse = {
   labels: [],
 };
 
+const check = (name: string, bucket: string) => ({
+  name,
+  state: bucket.toUpperCase(),
+  bucket,
+  link: "",
+  workflow: null,
+});
+
 function collect(github: GitHubService, options = GIT_CONTEXT_DEFAULTS) {
   return Effect.runPromise(
     collectPullRequest(options).pipe(Effect.provideService(GitHub, github)),
@@ -31,22 +42,18 @@ function collect(github: GitHubService, options = GIT_CONTEXT_DEFAULTS) {
 }
 
 describe("collectPullRequest", () => {
-  test("requests exactly the enabled fields and check details", async () => {
-    let jsonCall: { args: readonly string[]; options: unknown } | undefined;
-    let runCall: { args: readonly string[]; options: unknown } | undefined;
+  test("reads the pull request and its checks through typed operations", async () => {
+    const commands: string[][] = [];
 
-    const github: GitHubService = {
-      json: (args, options) => {
-        jsonCall = { args, options };
+    const github = await makeGitHub((args) => {
+      commands.push([...args]);
 
-        return Effect.succeed(summaryResponse);
-      },
-      run: (args, options) => {
-        runCall = { args, options };
-
-        return Effect.succeed("build\tpass\n");
-      },
-    };
+      return success(
+        JSON.stringify(
+          args[1] === "view" ? summaryResponse : [check("build", "pass")],
+        ),
+      );
+    });
 
     const result = await collect(github, {
       ...GIT_CONTEXT_DEFAULTS,
@@ -56,19 +63,17 @@ describe("collectPullRequest", () => {
       checks: true,
     });
 
-    expect(jsonCall).toEqual({
-      args: [
+    expect(commands).toEqual([
+      ["pr", "view", fields],
+      [
         "pr",
-        "view",
-        "--json",
-        "number,state,title,url,isDraft,mergeStateStatus,headRefName,baseRefName,reviewDecision,body,comments,labels,reviews",
+        "checks",
+        "--repo=owner/repo",
+        "--json=name,state,bucket,link,workflow",
+        "--",
+        "42",
       ],
-      options: { checkRateLimit: false, retries: 0 },
-    });
-    expect(runCall).toEqual({
-      args: ["pr", "checks", "42"],
-      options: { checkRateLimit: false, retries: 0 },
-    });
+    ]);
     expect(result.data?.checks).toBe("build\tpass");
   });
 
@@ -89,89 +94,40 @@ describe("collectPullRequest", () => {
     });
   });
 
-  test("distinguishes unexpected responses from missing required fields", async () => {
-    const unexpected: GitHubService = {
-      json: () => Effect.succeed("unexpected"),
-      run: () => Effect.die("Unexpected checks command"),
-    };
+  test("reports responses that do not match the pull request fields", async () => {
+    for (const response of [
+      "unexpected",
+      { number: 42 },
+      { ...summaryResponse, state: 123, labels: [false] },
+    ]) {
+      const github = await makeGitHub(() => success(JSON.stringify(response)));
 
-    const incomplete: GitHubService = {
-      json: () => Effect.succeed({ number: 42 }),
-      run: () => Effect.die("Unexpected checks command"),
-    };
+      const result = await collect(github);
 
-    expect(await collect(unexpected)).toEqual({
-      data: null,
-      warnings: ["Unable to read PR details: unexpected response."],
-    });
-    expect(await collect(incomplete)).toEqual({
-      data: null,
-      warnings: ["Unable to read PR details: required fields are missing."],
-    });
+      expect(result.data).toBeNull();
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toStartWith("Unable to read PR details:");
+    }
   });
 
-  test("tolerates malformed optional fields and collection entries", async () => {
-    const github: GitHubService = {
-      json: () =>
-        Effect.succeed({
-          number: 42,
-          title: "Improve context",
-          state: 123,
-          isDraft: "no",
-          comments: [
-            null,
-            { author: "unexpected", createdAt: false, body: "kept" },
-          ],
-          reviews: "unexpected",
-          labels: [false, { name: "bug" }],
-        }),
-      run: () => Effect.die("Unexpected checks command"),
-    };
+  test.each(["fail", "pending"])("keeps %s checks as data", async (bucket) => {
+    const github = await makeGitHub((args) =>
+      args[1] === "view"
+        ? success(JSON.stringify(summaryResponse))
+        : failure("check status", {
+            stdout: JSON.stringify([check("build", bucket)]),
+            exitCode: bucket === "pending" ? 8 : 1,
+          }),
+    );
 
     const result = await collect(github, {
       ...GIT_CONTEXT_DEFAULTS,
-      labels: true,
-      comments: true,
-      reviews: true,
+      checks: true,
     });
 
-    expect(result.data?.summary.state).toBe("");
-    expect(result.data?.summary.isDraft).toBe(false);
-    expect(result.data?.summary.commentCount).toBe(2);
-    expect(result.data?.comments).toEqual([
-      { author: "(unknown)", createdAt: "", body: "kept" },
-    ]);
-    expect(result.data?.reviews).toEqual([]);
-    expect(result.data?.labels).toEqual(["bug"]);
+    expect(result.data?.checks).toBe(`build\t${bucket}`);
+    expect(result.warnings).toEqual([]);
   });
-
-  test.each([
-    { exitCode: 1, status: "fail" },
-    { exitCode: 8, status: "pending" },
-  ])(
-    "retains useful check output on exit $exitCode",
-    async ({ exitCode, status }) => {
-      const commands: string[][] = [];
-
-      const github = await makeGitHub((args) => {
-        commands.push([...args]);
-
-        return args[1] === "view"
-          ? success(JSON.stringify(summaryResponse))
-          : failure("check status", { stdout: `build\t${status}\n`, exitCode });
-      });
-
-      const result = await collect(github, {
-        ...GIT_CONTEXT_DEFAULTS,
-        checks: true,
-      });
-
-      expect(result.data?.checks).toBe(`build\t${status}`);
-      expect(result.warnings).toEqual([]);
-      expect(commands).toHaveLength(2);
-      expect(commands[1]).toEqual(["pr", "checks", "42"]);
-    },
-  );
 
   test("bounds every optional text section and aggregate list", async () => {
     const comments = Array.from(
@@ -197,35 +153,36 @@ describe("collectPullRequest", () => {
       name: `label-${index}`,
     }));
 
-    const github: GitHubService = {
-      json: () =>
-        Effect.succeed({
-          number: 42,
-          state: "OPEN",
-          title: "t".repeat(PR_LIMITS.title + 1),
-          url: "u".repeat(PR_LIMITS.url + 1),
-          isDraft: false,
-          mergeStateStatus: "CLEAN",
-          headRefName: "feature",
-          baseRefName: "trunk",
-          reviewDecision: "REVIEW_REQUIRED",
-          body: "d".repeat(PR_LIMITS.body + 1),
-          comments,
-          reviews,
-          labels,
-        }),
-      run: () => Effect.succeed("k".repeat(PR_LIMITS.checks + 1)),
-    };
-
-    const result = await Effect.runPromise(
-      collectPullRequest({
-        ...GIT_CONTEXT_DEFAULTS,
-        labels: true,
-        comments: true,
-        reviews: true,
-        checks: true,
-      }).pipe(Effect.provideService(GitHub, github)),
+    const checks = Array.from(
+      { length: Math.ceil(PR_LIMITS.checks / 8) + 1 },
+      (_, index) => check(`check-${index}`, "pass"),
     );
+
+    const github = await makeGitHub((args) =>
+      success(
+        JSON.stringify(
+          args[1] === "view"
+            ? {
+                ...summaryResponse,
+                title: "t".repeat(PR_LIMITS.title + 1),
+                url: `https://github.com/owner/repo/pull/42?${"u".repeat(PR_LIMITS.url)}`,
+                body: "d".repeat(PR_LIMITS.body + 1),
+                comments,
+                reviews,
+                labels,
+              }
+            : checks,
+        ),
+      ),
+    );
+
+    const result = await collect(github, {
+      ...GIT_CONTEXT_DEFAULTS,
+      labels: true,
+      comments: true,
+      reviews: true,
+      checks: true,
+    });
 
     expect(result.data).not.toBeNull();
 

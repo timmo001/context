@@ -1,6 +1,5 @@
 import {
   Gh,
-  GhCommandError,
   isRateLimited,
   isTransient,
   RateLimit,
@@ -8,21 +7,14 @@ import {
 } from "@timmo001/effect-gh";
 import {
   Cache,
-  Clock,
   Context,
   Duration,
   Effect,
   Layer,
   Match,
-  Predicate,
   Schedule,
   Schema,
-  Stream,
 } from "effect";
-import {
-  DEFAULT_COMMAND_MAX_OUTPUT_BYTES,
-  DEFAULT_COMMAND_TIMEOUT_MS,
-} from "../../lib/env.js";
 
 /** Retry and rate-limit settings, read once at the composition root. */
 export interface GitHubSettings {
@@ -47,40 +39,26 @@ class GitHubError extends Schema.TaggedError<GitHubError>()("GitHubError", {
   rateLimited: Schema.Boolean,
 }) {}
 
-/** Options for GitHub CLI commands. */
+/** Options for GitHub operations. */
 interface GitHubCommandOptions {
   /** Number of retries after the initial attempt. */
   readonly retries?: number;
-  /** Whether to check REST API rate-limit state before the command. */
+  /** Whether to check REST API rate-limit state before the operation. */
   readonly checkRateLimit?: boolean;
 }
 
 /** Service interface for all GitHub CLI/API communication. */
 export interface GitHubService {
-  /** Run a raw `gh` command with rate-limit checks and retries. */
-  readonly run: (
-    args: readonly string[],
+  /**
+   * Run a typed effect-gh read with a rate-limit check and retries of
+   * transient failures. `label` names the operation in errors.
+   */
+  readonly read: <A, R>(
+    label: string,
+    operation: Effect.Effect<A, GhError, R>,
     opts?: GitHubCommandOptions,
-  ) => Effect.Effect<string, GitHubError>;
-  /** Run a `gh` command expected to return JSON and parse the response. */
-  readonly json: (
-    args: readonly string[],
-    opts?: GitHubCommandOptions,
-  ) => Effect.Effect<Schema.Json, GitHubError>;
+  ) => Effect.Effect<A, GitHubError, Exclude<R, Gh>>;
 }
-
-interface Diagnostics {
-  stdout: string;
-  stderr: string;
-}
-
-type GitHubAttemptOutcome =
-  | { readonly type: "success"; readonly output: string }
-  | { readonly type: "output_limit" }
-  | {
-      readonly type: "rate_limit_exhausted";
-      readonly resetEpochSeconds: number;
-    };
 
 /** Effect service for GitHub CLI/API communication. */
 export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
@@ -94,106 +72,28 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
           Duration.seconds(settings.rateLimitTtlSeconds),
         );
 
-        const execute = Effect.fn("GitHub.execute")(function* (
-          args: readonly string[],
-          diagnostics: Diagnostics,
-        ) {
-          let bytes = 0;
-          let limited = false;
-          diagnostics.stdout = "";
-          diagnostics.stderr = "";
-          // Keep streamed diagnostics: SDK command errors omit stdout and cap stderr.
-          yield* gh.stream(args, { timeout: DEFAULT_COMMAND_TIMEOUT_MS }).pipe(
-            Stream.takeWhile((chunk) => {
-              const encoded = new TextEncoder().encode(chunk.text);
-
-              const accepted = Math.min(
-                encoded.byteLength,
-                DEFAULT_COMMAND_MAX_OUTPUT_BYTES - bytes,
-              );
-
-              const text =
-                accepted === encoded.byteLength
-                  ? chunk.text
-                  : new TextDecoder().decode(encoded.subarray(0, accepted));
-
-              if (Predicate.isTagged(chunk, "Stdout"))
-                diagnostics.stdout += text;
-              else diagnostics.stderr += text;
-              bytes += accepted;
-              limited = accepted < encoded.byteLength;
-
-              return !limited;
-            }),
-            Stream.runDrain,
-            Effect.mapError((error) =>
-              error instanceof GhCommandError
-                ? new GhCommandError({
-                    executable: error.executable,
-                    exitCode: error.exitCode,
-                    stdout: diagnostics.stdout,
-                    stdoutTruncated: false,
-                    stderr: diagnostics.stderr,
-                    stderrTruncated: false,
-                  })
-                : error,
+        const guard = (label: string) =>
+          RateLimit.guard(rateLimits, {
+            minRemaining: settings.rateLimitMinRemaining,
+            maxWait: Duration.seconds(settings.rateLimitMaxWaitSeconds),
+          }).pipe(
+            Effect.mapError(
+              (exhausted) =>
+                new GitHubError({
+                  command: label,
+                  exitCode: 1,
+                  reason: "exit",
+                  stdout: "",
+                  stderr: `GitHub REST API rate limit exhausted; resets at ${new Date(exhausted.reset * 1000).toISOString()}`,
+                  retryable: false,
+                  rateLimited: true,
+                }),
             ),
           );
 
-          return limited
-            ? ({ type: "output_limit" } as const)
-            : ({ type: "success", output: diagnostics.stdout } as const);
-        });
-
-        const getRateLimit = Effect.fn("GitHub.getRateLimit")(function* () {
-          return yield* Cache.get(rateLimits, "core").pipe(
-            Effect.orElseSucceed(() => null),
-          );
-        });
-
-        const ensureRateLimit = Effect.fn("GitHub.ensureRateLimit")(function* (
-          args: readonly string[],
-        ) {
-          if (args[0] === "api" && args[1] === "rate_limit") return null;
-          const snapshot = yield* getRateLimit();
-
-          if (!snapshot || snapshot.remaining > settings.rateLimitMinRemaining)
-            return null;
-          const now = yield* Clock.currentTimeMillis;
-
-          const resetInSeconds = Math.max(
-            0,
-            snapshot.reset - Math.floor(now / 1000),
-          );
-
-          if (resetInSeconds <= settings.rateLimitMaxWaitSeconds) {
-            yield* Effect.sleep(Duration.seconds(resetInSeconds + 1));
-            yield* Cache.invalidate(rateLimits, "core");
-
-            return null;
-          }
-
-          return {
-            type: "rate_limit_exhausted",
-            resetEpochSeconds: snapshot.reset,
-          } as const;
-        });
-
-        const run = Effect.fn("GitHub.run")(function* (
-          args: readonly string[],
-          opts?: GitHubCommandOptions,
-        ): Effect.fn.Return<string, GitHubError> {
-          const diagnostics: Diagnostics = { stdout: "", stderr: "" };
-
+        const read: GitHubService["read"] = (label, operation, opts) => {
           // Every attempt, including retries, checks the rate limit first.
-          const attempt = Effect.gen(function* () {
-            const exhausted: GitHubAttemptOutcome | null =
-              opts?.checkRateLimit === false
-                ? null
-                : yield* ensureRateLimit(args);
-
-            return exhausted ?? (yield* execute(args, diagnostics));
-          }).pipe(
+          const attempt = operation.pipe(
             Effect.tapError((error) =>
               isRateLimited(error)
                 ? Cache.invalidate(rateLimits, "core")
@@ -201,101 +101,78 @@ export class GitHub extends Context.Service<GitHub, GitHubService>()("GitHub") {
             ),
           );
 
-          const outcome = yield* attempt.pipe(
-            Gh.retryTransient({
+          return (
+            opts?.checkRateLimit === false
+              ? attempt.pipe(
+                  Effect.mapError((error) => toGitHubError(label, error)),
+                )
+              : guard(label).pipe(
+                  Effect.andThen(
+                    attempt.pipe(
+                      Effect.mapError((error) => toGitHubError(label, error)),
+                    ),
+                  ),
+                )
+          ).pipe(
+            Effect.retry({
               times: opts?.retries ?? settings.retries,
               schedule: Schedule.exponential("1 second"),
+              while: (error) => error.retryable,
             }),
-            Effect.mapError((error) => toGitHubError(args, error, diagnostics)),
+            Effect.provideService(Gh, gh),
           );
+        };
 
-          return yield* Match.value(outcome).pipe(
-            Match.discriminatorsExhaustive("type")({
-              success: ({ output }) => Effect.succeed(output),
-              output_limit: () =>
-                Effect.fail(
-                  new GitHubError({
-                    command: formatGhCommand(args),
-                    exitCode: -1,
-                    reason: "output_limit",
-                    stdout: diagnostics.stdout,
-                    stderr: diagnostics.stderr,
-                    retryable: false,
-                    rateLimited: false,
-                  }),
-                ),
-              rate_limit_exhausted: ({ resetEpochSeconds }) =>
-                Effect.fail(
-                  new GitHubError({
-                    command: formatGhCommand(args),
-                    exitCode: 1,
-                    reason: "exit",
-                    stdout: "",
-                    stderr: `GitHub REST API rate limit exhausted; resets at ${new Date(resetEpochSeconds * 1000).toISOString()}`,
-                    retryable: false,
-                    rateLimited: true,
-                  }),
-                ),
-            }),
-          );
-        });
-
-        const json = (args: readonly string[], opts?: GitHubCommandOptions) =>
-          run(args, opts).pipe(
-            Effect.flatMap((output) =>
-              Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(
-                output,
-              ).pipe(
-                Effect.mapError(
-                  (error) =>
-                    new GitHubError({
-                      command: formatGhCommand(args),
-                      exitCode: 1,
-                      reason: "exit",
-                      stdout: output,
-                      stderr: error.message,
-                      retryable: false,
-                      rateLimited: false,
-                    }),
-                ),
-              ),
-            ),
-          );
-
-        return { run, json };
+        return GitHub.of({ read });
       }),
     );
 }
 
-function toGitHubError(
-  args: readonly string[],
-  error: GhError,
-  diagnostics: Diagnostics,
-): GitHubError {
-  const stderr =
-    Predicate.isTagged(error, "GhPlatformError") ||
-    Predicate.isTagged(error, "GhDecodeError")
-      ? diagnostics.stderr ||
-        (error.cause instanceof Error
+function toGitHubError(label: string, error: GhError): GitHubError {
+  const details = Match.value(error).pipe(
+    Match.tag("GhCommandError", (error) => ({
+      exitCode: error.exitCode,
+      reason: "exit" as const,
+      stdout: error.stdout,
+      stderr: error.stderr,
+    })),
+    Match.tag("GhTimeoutError", (error) => ({
+      exitCode: -1,
+      reason: "timeout" as const,
+      stdout: "",
+      stderr: `gh timed out after ${error.timeoutMs}ms`,
+    })),
+    Match.tag("GhOutputLimitError", (error) => ({
+      exitCode: -1,
+      reason: "output_limit" as const,
+      stdout: "",
+      stderr: `gh output passed ${error.limitBytes} bytes`,
+    })),
+    Match.tag("GhPlatformError", (error) => ({
+      exitCode: -1,
+      reason: "spawn" as const,
+      stdout: "",
+      stderr:
+        error.cause instanceof Error
           ? error.cause.message
-          : String(error.cause))
-      : diagnostics.stderr;
+          : String(error.cause),
+    })),
+    Match.tag("GhDecodeError", (error) => ({
+      exitCode: 1,
+      reason: "exit" as const,
+      stdout: "",
+      stderr:
+        error.cause instanceof Error
+          ? error.cause.message
+          : String(error.cause),
+    })),
+    Match.exhaustive,
+  );
 
   return new GitHubError({
-    command: formatGhCommand(args),
-    exitCode: error instanceof GhCommandError ? error.exitCode : -1,
-    reason: Match.value(error).pipe(
-      Match.tag("GhTimeoutError", () => "timeout" as const),
-      Match.tag("GhPlatformError", () => "spawn" as const),
-      Match.orElse(() => "exit" as const),
-    ),
-    stdout: diagnostics.stdout,
-    stderr,
+    command: label,
+    ...details,
     retryable: isTransient(error),
     rateLimited: isRateLimited(error),
   });
-}
-
-function formatGhCommand(args: readonly string[]): string {
-  return `gh ${args.join(" ")}`;
 }

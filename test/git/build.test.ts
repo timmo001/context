@@ -32,8 +32,7 @@ const liveExecutor = Effect.runSync(
 );
 
 const unusedGitHub: GitHubService = {
-  run: () => Effect.die("Unexpected GitHub command"),
-  json: () => Effect.die("Unexpected GitHub command"),
+  read: () => Effect.die("Unexpected GitHub command"),
 };
 
 function repoExecutor(
@@ -117,15 +116,10 @@ describe("buildBranchContext", () => {
       let githubCalled = false;
 
       const github: GitHubService = {
-        run: () => {
+        read: () => {
           githubCalled = true;
 
-          return Effect.succeed("");
-        },
-        json: () => {
-          githubCalled = true;
-
-          return Effect.succeed({});
+          return Effect.die("Unexpected GitHub read");
         },
       };
 
@@ -308,15 +302,10 @@ describe("buildBranchContext", () => {
       let githubCalled = false;
 
       const github: GitHubService = {
-        run: () => {
+        read: () => {
           githubCalled = true;
 
-          return Effect.succeed("");
-        },
-        json: () => {
-          githubCalled = true;
-
-          return Effect.succeed({});
+          return Effect.die("Unexpected GitHub read");
         },
       };
 
@@ -347,15 +336,10 @@ describe("buildBranchContext", () => {
       let githubCalled = false;
 
       const github: GitHubService = {
-        run: () => {
+        read: () => {
           githubCalled = true;
 
-          return Effect.succeed("");
-        },
-        json: () => {
-          githubCalled = true;
-
-          return Effect.succeed({});
+          return Effect.die("Unexpected GitHub read");
         },
       };
 
