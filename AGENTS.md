@@ -17,7 +17,7 @@ This repo contains the standalone `context` CLI and MCP server.
 - Keep portable Context skills under `.agents/skills/`, with separate `context-cli` and `context-mcp` workflows. Keep harness-specific integrations in their owning repositories.
 - Regenerate generated docs with `mise run docs:gen` after changing CLI or MCP metadata.
 - Do not hand-edit generated docs pages.
-- Keep OpenCode plugin docs out of this repo except for links to `timmo001/opencode-config` or dotfiles integration notes at <https://dotfiles.timmo.dev/opencode/>.
+- Keep OpenCode plugin docs out of this repo except for links to `timmo001/dotfiles` or its integration notes at <https://dotfiles.timmo.dev/opencode/>.
 
 ## Skill Ownership And Updates
 
