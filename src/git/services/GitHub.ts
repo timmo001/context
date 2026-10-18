@@ -157,7 +157,7 @@ function toGitHubError(label: string, error: GhError): GitHubError {
           ? error.cause.message
           : String(error.cause),
     })),
-    Match.tag("GhDecodeError", (error) => ({
+    Match.tag("GhDecodeError", "GhInvalidOptionsError", (error) => ({
       exitCode: 1,
       reason: "exit" as const,
       stdout: "",
