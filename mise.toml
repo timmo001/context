@@ -2,7 +2,7 @@ min_version = "2025.1.0"
 
 [tools]
 node = "26.12.1"
-bun = "1.4.3"
+bun = "1.4.4"
 
 [tasks.install]
 description = "Install context dependencies"
