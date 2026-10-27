@@ -65,7 +65,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: timmo001/workflows/.github/workflows/release-bun-cli-linux.yml@6e3616d0d48c9c8ed9865b648107140b99b16551 # 20261024.0
+    uses: timmo001/workflows/.github/workflows/release-bun-cli-linux.yml@de4221cd9b24ad3d61aa1db87b6e4864cf56d5a1 # 20261027.0
     with:
       binary-name: context
       package-name: context
@@ -101,7 +101,7 @@ jobs:
           ref: ${{ env.RELEASE_VERSION }}
 
       - name: Render PKGBUILD
-        uses: timmo001/workflows/.github/actions/prepare-arch-bin@6e3616d0d48c9c8ed9865b648107140b99b16551 # 20261024.0
+        uses: timmo001/workflows/.github/actions/prepare-arch-bin@de4221cd9b24ad3d61aa1db87b6e4864cf56d5a1 # 20261027.0
         with:
           releaseVersion: ${{ env.RELEASE_VERSION }}
           packageName: context
@@ -121,7 +121,7 @@ jobs:
   arch-bin:
     name: Arch package (context-bin)
     needs: prepare-arch-bin
-    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@6e3616d0d48c9c8ed9865b648107140b99b16551 # 20261024.0
+    uses: timmo001/workflows/.github/workflows/build-arch-package.yml@de4221cd9b24ad3d61aa1db87b6e4864cf56d5a1 # 20261027.0
     with:
       package-name: context-bin
       package-files-artifact-name: arch-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
@@ -136,7 +136,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: timmo001/workflows/.github/workflows/attach-release-arch-package.yml@6e3616d0d48c9c8ed9865b648107140b99b16551 # 20261024.0
+    uses: timmo001/workflows/.github/workflows/attach-release-arch-package.yml@de4221cd9b24ad3d61aa1db87b6e4864cf56d5a1 # 20261027.0
     with:
       artifact-name: ${{ needs.arch-bin.outputs.artifact-name }}
       release-tag: >-
@@ -146,7 +146,7 @@ jobs:
   publish-aur:
     name: Publish AUR (context-bin)
     needs: prepare-arch-bin
-    uses: timmo001/workflows/.github/workflows/publish-aur.yml@6e3616d0d48c9c8ed9865b648107140b99b16551 # 20261024.0
+    uses: timmo001/workflows/.github/workflows/publish-aur.yml@de4221cd9b24ad3d61aa1db87b6e4864cf56d5a1 # 20261027.0
     with:
       package-name: context-bin
       artifact-name: arch-context-bin-${{ github.run_id }}-${{ github.run_attempt }}
