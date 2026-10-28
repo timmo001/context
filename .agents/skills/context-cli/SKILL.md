@@ -7,7 +7,7 @@ compatibility: Requires the context CLI and shell access. Git snapshots require 
 
 # Context CLI
 
-Use `context` for deterministic repository snapshots. Run it from the target repository. Reuse current injected context when it already answers the task; do not repeat discovery solely to change transport.
+Use `context` for deterministic repository snapshots. Run it from the target repository. Reuse current injected context when it already answers the task; do not repeat discovery solely to change transport. When the agent has a `context` Code Mode namespace, prefer its `git` and `stack` tools; the options below map to their inputs.
 
 ## Repository Context
 
