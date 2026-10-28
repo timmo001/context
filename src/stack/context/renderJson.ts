@@ -2,10 +2,27 @@
 import { STACK_LIMITS } from "./model.js";
 import { escapeTextControls } from "../../lib/text.js";
 import type {
+  EcosystemEntry,
+  FrameworkEntry,
+  LanguageEntry,
   StackContextData,
   StackTruncation,
   StackTruncationReason,
+  ToolingEntry,
 } from "./model.js";
+
+/** Bounded stack-context payload behind `context stack --json`. */
+export interface StackContextJson {
+  readonly root: string;
+  readonly name: string;
+  readonly scannedFiles: number;
+  readonly truncations: readonly StackTruncation[];
+  readonly languages: readonly LanguageEntry[];
+  readonly ecosystems: readonly EcosystemEntry[];
+  readonly tooling: readonly ToolingEntry[];
+  readonly frameworks: readonly FrameworkEntry[];
+  readonly warnings: readonly string[];
+}
 
 interface MutableTruncation {
   reason: StackTruncationReason;
@@ -117,6 +134,17 @@ function capTruncations(
 
 /** Render a bounded JSON payload with explicit scan and output truncations. */
 export function renderStackContextJson(data: StackContextData): string {
+  return buildStackContextJson(data).rendered;
+}
+
+/** Build the bounded stack-context payload as an object, as `--json` emits it. */
+export function stackContextJsonPayload(
+  data: StackContextData,
+): StackContextJson {
+  return buildStackContextJson(data).payload;
+}
+
+function buildStackContextJson(data: StackContextData) {
   const truncations: MutableTruncation[] = [];
   const value = (text: string) => boundedValue(text, truncations);
 
@@ -208,7 +236,7 @@ export function renderStackContextJson(data: StackContextData): string {
     truncations,
   ).map(value);
 
-  const payload = {
+  const payload: StackContextJson = {
     root: value(data.root),
     name: value(data.name),
     scannedFiles: data.scannedFiles,
@@ -223,7 +251,7 @@ export function renderStackContextJson(data: StackContextData): string {
   const rendered = JSON.stringify(payload);
   const observed = utf8Bytes(rendered);
 
-  if (observed <= STACK_LIMITS.jsonOutputBytes) return rendered;
+  if (observed <= STACK_LIMITS.jsonOutputBytes) return { payload, rendered };
 
   const fallbackTruncations = [...truncations];
   addTruncation(fallbackTruncations, {
@@ -250,7 +278,7 @@ export function renderStackContextJson(data: StackContextData): string {
     }
   }
 
-  return JSON.stringify({
+  const fallback: StackContextJson = {
     root: truncateUtf8(
       escapeTextControls(data.root),
       STACK_LIMITS.outputValueBytes,
@@ -266,5 +294,7 @@ export function renderStackContextJson(data: StackContextData): string {
     tooling: [],
     frameworks: [],
     warnings: [],
-  });
+  };
+
+  return { payload: fallback, rendered: JSON.stringify(fallback) };
 }

@@ -70,6 +70,12 @@ describe("MCP context contracts", () => {
       );
     }
 
+    expect(
+      registry.tools
+        .filter(({ tool }) => tool.outputSchema?.type === "object")
+        .map(({ tool }) => tool.name),
+    ).toEqual(["git_context", "stack_context"]);
+
     expect(registry.resources.map(({ resource }) => resource.uri)).toEqual([
       "context://git",
       "context://stack",

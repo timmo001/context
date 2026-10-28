@@ -5,15 +5,16 @@ import { parseSince } from "../../cli/since.js";
 import { renderHelp } from "../../cli/help.js";
 import {
   gitContextOptions,
-  gitContextText,
+  gitContextResult,
 } from "../../git/commands/Context.js";
 import {
   stackContextOptions,
-  stackContextText,
+  stackContextResult,
 } from "../../stack/commands/Context.js";
 import { GitHub } from "../../git/services/GitHub.js";
 import { CommandExecutor } from "../../services/CommandExecutor.js";
 import { mcpTools } from "../toolMetadata.js";
+import { GitContextResult, StackContextResult } from "./outputSchemas.js";
 import {
   READONLY_HINTS,
   READONLY_OPEN_WORLD_HINTS,
@@ -78,6 +79,7 @@ export const registerContextTools = Effect.gen(function* () {
     name: gitMeta.name,
     description: gitMeta.description,
     parameters: GitContextParams,
+    success: GitContextResult,
     annotations: READONLY_OPEN_WORLD_HINTS,
     handle: (params) =>
       Effect.try({
@@ -87,7 +89,7 @@ export const registerContextTools = Effect.gen(function* () {
             message: error instanceof Error ? error.message : String(error),
           }),
       }).pipe(
-        Effect.flatMap((options) => gitContextText(options)),
+        Effect.flatMap((options) => gitContextResult(options)),
         Effect.provideService(CommandExecutor, executor),
         Effect.provideService(GitHub, github),
       ),
@@ -98,9 +100,10 @@ export const registerContextTools = Effect.gen(function* () {
     name: stackMeta.name,
     description: stackMeta.description,
     parameters: StackContextParams,
+    success: StackContextResult,
     annotations: READONLY_HINTS,
     handle: (params) =>
-      stackContextText(stackContextOptions({ root: params.dir })).pipe(
+      stackContextResult(stackContextOptions({ root: params.dir })).pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       ),

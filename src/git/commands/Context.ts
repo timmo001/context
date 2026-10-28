@@ -7,7 +7,11 @@ import {
   GIT_CONTEXT_DEFAULTS,
   type BranchContextOptions,
 } from "../context/model.js";
-import { renderBranchContextJson } from "../context/renderJson.js";
+import {
+  branchContextJsonPayload,
+  renderBranchContextJson,
+  type BranchContextJson,
+} from "../context/renderJson.js";
 import { renderBranchContextText } from "../context/renderText.js";
 import { handleCommandError, writeText } from "../../lib/rows.js";
 
@@ -28,6 +32,23 @@ export function gitContextText(
   return buildBranchContext(options).pipe(
     Effect.map((data) => renderBranchContextText(data, styler)),
     Effect.withSpan("gitContext.text"),
+  );
+}
+
+/** Build git-context text plus the bounded JSON payload from one snapshot. */
+export function gitContextResult(
+  options: BranchContextOptions,
+): Effect.Effect<
+  { readonly text: string; readonly structured: BranchContextJson },
+  Error,
+  CommandExecutor | GitHub
+> {
+  return buildBranchContext(options).pipe(
+    Effect.map((data) => ({
+      text: renderBranchContextText(data, plainStyler),
+      structured: branchContextJsonPayload(data),
+    })),
+    Effect.withSpan("gitContext.result"),
   );
 }
 

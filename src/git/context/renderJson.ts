@@ -173,7 +173,7 @@ function recentCommitsText(records: readonly CommitRecord[]): string {
 }
 
 /** Serialised pull request block for the JSON payload. */
-interface PullRequestJson {
+export interface PullRequestJson {
   summary: PullRequestData["summary"];
   description?: string;
   labels?: readonly string[];
@@ -231,7 +231,8 @@ function toPullRequestJson(pr: PullRequestData): PullRequestJson {
   return json;
 }
 
-interface BranchContextJson {
+/** Bounded branch-context payload behind `context git --json`. */
+export interface BranchContextJson {
   inRepo: boolean;
   branchMetadata?: BranchMetadata;
   status?: {
@@ -300,10 +301,25 @@ function limitedWarnings(
  * collected, including when the default branch is unresolved.
  */
 export function renderBranchContextJson(data: BranchContextData): string {
+  return buildBranchContextJson(data).rendered;
+}
+
+/** Build the bounded branch-context payload as an object, as `--json` emits it. */
+export function branchContextJsonPayload(
+  data: BranchContextData,
+): BranchContextJson {
+  return buildBranchContextJson(data).payload;
+}
+
+function withRendered(payload: BranchContextJson) {
+  return { payload, rendered: JSON.stringify(payload) };
+}
+
+function buildBranchContextJson(data: BranchContextData) {
   const truncations: TruncationNotice[] = [];
 
   if (!data.inRepo) {
-    return JSON.stringify({
+    return withRendered({
       inRepo: false,
       pullRequest: null,
       warnings: limitedWarnings(data.warnings, truncations),
@@ -405,7 +421,7 @@ export function renderBranchContextJson(data: BranchContextData): string {
 
   const rendered = JSON.stringify(payload);
 
-  if (rendered.length <= CHAR_LIMITS.jsonOutput) return rendered;
+  if (rendered.length <= CHAR_LIMITS.jsonOutput) return { payload, rendered };
 
   const warning = `Branch context payload exceeded ${CHAR_LIMITS.jsonOutput} characters; large sections were omitted.`;
 
@@ -426,5 +442,5 @@ export function renderBranchContextJson(data: BranchContextData): string {
 
   if (branchMetadata) fallback.branchMetadata = branchMetadata;
 
-  return JSON.stringify(fallback);
+  return withRendered(fallback);
 }

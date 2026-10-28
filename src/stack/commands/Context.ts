@@ -8,7 +8,11 @@ import {
   STACK_CONTEXT_DEFAULTS,
   type StackContextOptions,
 } from "../context/model.js";
-import { renderStackContextJson } from "../context/renderJson.js";
+import {
+  renderStackContextJson,
+  stackContextJsonPayload,
+  type StackContextJson,
+} from "../context/renderJson.js";
 import { renderStackContextText } from "../context/renderText.js";
 
 type StackServices =
@@ -37,6 +41,23 @@ export function stackContextText(
   return detectStack(options).pipe(
     Effect.map((stack) => renderStackContextText(stack, styler)),
     Effect.withSpan("stackContext.text"),
+  );
+}
+
+/** Build stack-context text plus the bounded JSON payload from one snapshot. */
+export function stackContextResult(
+  options: StackContextOptions,
+): Effect.Effect<
+  { readonly text: string; readonly structured: StackContextJson },
+  never,
+  StackServices
+> {
+  return detectStack(options).pipe(
+    Effect.map((stack) => ({
+      text: renderStackContextText(stack, plainStyler),
+      structured: stackContextJsonPayload(stack),
+    })),
+    Effect.withSpan("stackContext.result"),
   );
 }
 

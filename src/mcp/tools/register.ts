@@ -18,8 +18,9 @@ export const READONLY_OPEN_WORLD_HINTS = {
 
 type ReadonlyHints = typeof READONLY_HINTS | typeof READONLY_OPEN_WORLD_HINTS;
 
-/** Options describing a single raw-text MCP tool registration. */
-export interface ToolRegistration<S extends Schema.Codec<unknown, unknown>, E> {
+type Codec = Schema.Codec<unknown, unknown>;
+
+interface BaseToolRegistration<S extends Codec> {
   /** Tool name as exposed to MCP clients. */
   readonly name: string;
   /** Human-readable tool description. */
@@ -28,15 +29,77 @@ export interface ToolRegistration<S extends Schema.Codec<unknown, unknown>, E> {
   readonly parameters: S;
   /** Behavioural hints. */
   readonly annotations: ReadonlyHints;
+}
+
+/** A tool that returns raw text only. */
+export interface TextToolRegistration<
+  S extends Codec,
+  E,
+> extends BaseToolRegistration<S> {
+  readonly success?: undefined;
   /** Handler returning raw text; failures render via Cause.pretty. */
   readonly handle: (params: S["Type"]) => Effect.Effect<string, E>;
 }
 
-/** Service for registering raw-text tools on the current MCP server. */
+/** A tool that returns raw text plus structured content typed by `success`. */
+export interface TypedToolRegistration<
+  S extends Codec,
+  O extends Codec,
+  E,
+> extends BaseToolRegistration<S> {
+  /** Effect schema for the structured result; it becomes the `outputSchema`. */
+  readonly success: O;
+  /** Handler returning the text and the structured value it was rendered from. */
+  readonly handle: (
+    params: S["Type"],
+  ) => Effect.Effect<
+    { readonly text: string; readonly structured: O["Type"] },
+    E
+  >;
+}
+
+/** Options describing a single MCP tool registration. */
+export type ToolRegistration<S extends Codec, E, O extends Codec = never> =
+  TextToolRegistration<S, E> | TypedToolRegistration<S, O, E>;
+
+/** Service for registering tools on the current MCP server. */
 export interface ToolRegistrarService {
-  readonly register: <S extends Schema.Codec<unknown, unknown>, E>(
-    options: ToolRegistration<S, E>,
+  readonly register: <S extends Codec, E, O extends Codec = never>(
+    options: ToolRegistration<S, E, O>,
   ) => Effect.Effect<void>;
+}
+
+interface ToolOutput {
+  readonly text: string;
+  readonly structured?: Schema.Json;
+}
+
+function isTyped<S extends Codec, E, O extends Codec>(
+  options: ToolRegistration<S, E, O>,
+): options is TypedToolRegistration<S, O, E> {
+  return options.success !== undefined;
+}
+
+function toolOutput<S extends Codec, E, O extends Codec>(
+  options: ToolRegistration<S, E, O>,
+): (params: S["Type"]) => Effect.Effect<ToolOutput, unknown> {
+  if (!isTyped(options)) {
+    const { handle } = options;
+
+    return (params) => handle(params).pipe(Effect.map((text) => ({ text })));
+  }
+
+  const { handle } = options;
+  const encode = Schema.encodeEffect(Schema.toCodecJson(options.success));
+
+  return (params) =>
+    handle(params).pipe(
+      Effect.flatMap(({ text, structured }) =>
+        encode(structured).pipe(
+          Effect.map((json) => ({ text, structured: json })),
+        ),
+      ),
+    );
 }
 
 /** Effect service bound to the current MCP server. */
@@ -51,18 +114,23 @@ export class ToolRegistrar extends Context.Service<
 
       const register: ToolRegistrarService["register"] = (options) => {
         const decode = Schema.decodeEffect(options.parameters);
+        const output = toolOutput(options);
 
         return server.addTool({
           tool: new McpSchema.Tool({
             name: options.name,
             description: options.description,
             inputSchema: Tool.getJsonSchemaFromSchema(options.parameters),
+            outputSchema:
+              options.success === undefined
+                ? undefined
+                : Tool.getJsonSchemaFromSchema(options.success),
             annotations: options.annotations,
           }),
           annotations: Context.empty(),
           handle: (payload) =>
             decode(payload).pipe(
-              Effect.flatMap(options.handle),
+              Effect.flatMap(output),
               Effect.matchCause({
                 onFailure: (cause) =>
                   new McpSchema.CallToolResult({
@@ -74,10 +142,11 @@ export class ToolRegistrar extends Context.Service<
                       },
                     ],
                   }),
-                onSuccess: (text) =>
+                onSuccess: ({ text, structured }) =>
                   new McpSchema.CallToolResult({
                     isError: false,
                     content: [{ type: "text", text }],
+                    structuredContent: structured,
                   }),
               }),
             ),
