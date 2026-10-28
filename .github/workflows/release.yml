@@ -86,6 +86,64 @@ jobs:
       existing-release: true
       attest: true
 
+  effect-context-version:
+    name: Check effect-context version
+    needs: validate-release
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    env:
+      RELEASE_VERSION: >-
+        ${{ inputs.release-version || github.event.release.tag_name }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ env.RELEASE_VERSION }}
+
+      - name: Skip versions already on npm
+        id: check
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version packages/effect-context/package.json)"
+          if npm view "@timmo001/effect-context@$version" version >/dev/null 2>&1; then
+            echo "::notice::@timmo001/effect-context@$version is already published; bump packages/effect-context to release it."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  effect-context-npm:
+    name: effect-context npm
+    needs: effect-context-version
+    if: needs.effect-context-version.outputs.publish == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: timmo001/workflows/.github/workflows/publish-npm-package.yml@de4221cd9b24ad3d61aa1db87b6e4864cf56d5a1 # 20261027.0
+    with:
+      package-path: packages/effect-context
+      check-command: >-
+        cd ../.. && bun run lint &&
+        bun ./node_modules/typescript/bin/tsc --noEmit &&
+        bun run format:check && bun test
+
+  effect-context-jsr:
+    name: effect-context JSR
+    needs: effect-context-version
+    if: needs.effect-context-version.outputs.publish == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: timmo001/workflows/.github/workflows/publish-jsr-package.yml@de4221cd9b24ad3d61aa1db87b6e4864cf56d5a1 # 20261027.0
+    with:
+      package-path: packages/effect-context
+      check-command: >-
+        (cd ../.. && bun run lint &&
+        bun ./node_modules/typescript/bin/tsc --noEmit &&
+        bun run format:check && bun test) && bun run build
+
   prepare-arch-bin:
     name: Prepare Arch package (context-bin)
     needs: release

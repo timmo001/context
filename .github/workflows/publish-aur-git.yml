@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - src/**
+      - packages/**
       - package.json
       - bun.lock
       - mise.toml
