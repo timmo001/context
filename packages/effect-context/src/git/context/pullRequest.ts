@@ -391,21 +391,27 @@ function renderChecks(checks: PullRequest.ChecksResult): string {
  * Collect the pull request for the current branch. Skips entirely (returns
  * `null`, no warning) when the pull request section is disabled. Resolves to
  * `null` with no warning when there is simply no PR for the branch, and to
- * `null` with a warning on an unexpected failure.
+ * `null` with a warning on an unexpected failure. A `cwd` runs `gh` there.
  */
 export function collectPullRequest(
   options: BranchContextOptions,
+  cwd?: string,
 ): Effect.Effect<PullRequestResult, never, GitHub> {
   return Effect.gen(function* () {
     if (!options.pullRequest) return { data: null, warnings: [] };
 
     const github = yield* GitHub;
+    const ghOptions = cwd === undefined ? {} : { cwd };
 
     const viewResult = yield* github
-      .read("gh pr view", PullRequest.get({ fields: prViewFields }), {
-        checkRateLimit: false,
-        retries: 0,
-      })
+      .read(
+        "gh pr view",
+        PullRequest.get({ fields: prViewFields }, ghOptions),
+        {
+          checkRateLimit: false,
+          retries: 0,
+        },
+      )
       .pipe(
         Effect.match({
           onSuccess: (value) => ({ ok: true as const, value }),
@@ -462,7 +468,7 @@ export function collectPullRequest(
       const checksResult = yield* github
         .read(
           "gh pr checks",
-          PullRequest.checks(summary.number, { repository }),
+          PullRequest.checks(summary.number, { ...ghOptions, repository }),
           { checkRateLimit: false, retries: 0 },
         )
         .pipe(

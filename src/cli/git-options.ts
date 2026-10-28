@@ -1,4 +1,4 @@
-import type { BranchContextOptions } from "../git/context/model.js";
+import type { BranchContextOptions } from "@timmo001/effect-context";
 import { hasOption, optionValue, type ParsedCliArgs } from "./args.js";
 
 type InertJsonFlag = "--branch-diff" | "--diff";

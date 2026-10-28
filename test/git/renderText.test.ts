@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { BranchContextData } from "../../src/git/context/model.js";
-import { renderBranchContextText } from "../../src/git/context/renderText.js";
+import {
+  renderBranchContextText,
+  type BranchContextData,
+} from "@timmo001/effect-context";
 
 function context(
   overrides: Partial<BranchContextData> = {},

@@ -11,8 +11,7 @@ import {
   stackContextOptions,
   stackContextResult,
 } from "../../stack/commands/Context.js";
-import { GitHub } from "../../git/services/GitHub.js";
-import { CommandExecutor } from "../../services/CommandExecutor.js";
+import { CommandExecutor, GitHub } from "@timmo001/effect-context";
 import { mcpTools } from "../toolMetadata.js";
 import { GitContextResult, StackContextResult } from "./outputSchemas.js";
 import {

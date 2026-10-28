@@ -3,7 +3,7 @@ import { NodeServices } from "@effect/platform-node";
 import { layer as ghLayer } from "@timmo001/effect-gh";
 import { Effect, Layer } from "effect";
 import { McpServer } from "effect/ai";
-import { GitHub } from "../../src/git/services/GitHub.js";
+import { CommandExecutor, GitHub } from "@timmo001/effect-context";
 import { registerContextResources } from "../../src/mcp/resources/context.js";
 import {
   gitContextToolOptions,
@@ -15,7 +15,6 @@ import {
   ToolRegistrar,
 } from "../../src/mcp/tools/register.js";
 import { mcpTools } from "../../src/mcp/toolMetadata.js";
-import { CommandExecutor } from "../../src/services/CommandExecutor.js";
 
 const McpTestLayer = Layer.mergeAll(
   ToolRegistrar.layer.pipe(Layer.provideMerge(McpServer.McpServer.layer)),

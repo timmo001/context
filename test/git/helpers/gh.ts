@@ -5,10 +5,7 @@ import {
 } from "@timmo001/effect-gh";
 import { Deferred, Effect, Layer, Predicate, Sink, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
-import {
-  GitHub,
-  type GitHubSettings,
-} from "../../../src/git/services/GitHub.js";
+import { GitHub, type GitHubSettings } from "@timmo001/effect-context";
 
 export const testSettings: GitHubSettings = {
   retries: 2,

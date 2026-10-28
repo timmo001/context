@@ -1,0 +1,60 @@
+{
+  "name": "@timmo001/effect-context",
+  "version": "0.2.0",
+  "description": "Effect library for git branch and tech-stack context, as used by the context CLI and MCP server",
+  "keywords": [
+    "effect",
+    "git",
+    "github",
+    "context",
+    "stack"
+  ],
+  "homepage": "https://github.com/timmo001/context/tree/main/packages/effect-context#readme",
+  "bugs": {
+    "url": "https://github.com/timmo001/context/issues"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/timmo001/context.git",
+    "directory": "packages/effect-context"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md",
+    "!src/**/*.test.ts"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "bun run build"
+  },
+  "dependencies": {
+    "@timmo001/effect-gh": "0.8.0"
+  },
+  "peerDependencies": {
+    "@effect/platform-node": "4.0.7",
+    "effect": "4.0.7"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "4.0.7",
+    "@types/bun": "1.4.4",
+    "effect": "4.0.7"
+  }
+}

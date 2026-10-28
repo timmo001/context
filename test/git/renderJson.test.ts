@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
-import type { BranchContextData } from "../../src/git/context/model.js";
-import { CHAR_LIMITS } from "../../src/git/context/model.js";
-import { renderBranchContextJson } from "../../src/git/context/renderJson.js";
+import {
+  CHAR_LIMITS,
+  renderBranchContextJson,
+  type BranchContextData,
+} from "@timmo001/effect-context";
 
 const truncationSchema = Schema.Struct({
   path: Schema.String,

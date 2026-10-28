@@ -12,11 +12,11 @@ import {
   Stream,
 } from "effect";
 import { TestClock } from "effect/testing";
-import { GitHub } from "../../src/git/services/GitHub.js";
 import {
   DEFAULT_COMMAND_MAX_OUTPUT_BYTES,
   DEFAULT_COMMAND_TIMEOUT_MS,
-} from "../../src/lib/env.js";
+  GitHub,
+} from "@timmo001/effect-context";
 import {
   failure,
   ghFixture,

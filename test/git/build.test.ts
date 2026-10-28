@@ -3,15 +3,15 @@ import { join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import {
+  buildBranchContext,
   CommandError,
   CommandExecutor,
-  type CommandExecutorService,
-} from "../../src/services/CommandExecutor.js";
-import { buildBranchContext } from "../../src/git/context/build.js";
-import {
   GIT_CONTEXT_DEFAULTS,
+  GitHub,
   type BranchContextOptions,
-} from "../../src/git/context/model.js";
+  type CommandExecutorService,
+  type GitHubService,
+} from "@timmo001/effect-context";
 import {
   gitAsync as git,
   makeTempDirectory,
@@ -19,7 +19,6 @@ import {
   renamePath,
   writeTextFile,
 } from "../helpers/platform.js";
-import { GitHub, type GitHubService } from "../../src/git/services/GitHub.js";
 
 const liveExecutor = Effect.runSync(
   Effect.gen(function* () {

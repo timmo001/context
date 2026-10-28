@@ -8,7 +8,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "dist-ts",
-    "rootDir": "src",
+    "rootDir": ".",
     "types": ["bun"],
     "plugins": [
       {
@@ -20,5 +20,5 @@
       }
     ]
   },
-  "include": ["src"]
+  "include": ["src", "packages/*/src"]
 }

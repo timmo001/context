@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, FileSystem, Path } from "effect";
-import { detectStack } from "../../src/stack/context/detect.js";
-import type { StackContextOptions } from "../../src/stack/context/model.js";
+import {
+  detectStack,
+  type StackContextOptions,
+} from "@timmo001/effect-context";
 import { git, runScoped } from "../helpers/platform.js";
 
 const repository = Effect.fnUntraced(function* () {

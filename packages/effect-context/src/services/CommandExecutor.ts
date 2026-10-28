@@ -105,6 +105,7 @@ const execute = Effect.fnUntraced(function* (
   cmd: string,
   args: readonly string[],
   opts: CommandRunOptions | undefined,
+  cwd: string | undefined,
 ) {
   const command = [cmd, ...args].join(" ");
 
@@ -123,7 +124,7 @@ const execute = Effect.fnUntraced(function* (
   const exitCode = yield* Effect.gen(function* () {
     const child = yield* spawner.spawn(
       ChildProcess.make(cmd, [...args], {
-        cwd: opts?.cwd,
+        cwd,
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
@@ -227,13 +228,14 @@ const executeExitCode = Effect.fnUntraced(function* (
   cmd: string,
   args: readonly string[],
   opts: CommandExitCodeOptions | undefined,
+  cwd: string | undefined,
 ) {
   const command = [cmd, ...args].join(" ");
 
   const outcome = yield* Effect.gen(function* () {
     const child = yield* spawner.spawn(
       ChildProcess.make(cmd, [...args], {
-        cwd: opts?.cwd,
+        cwd,
         stdin: "ignore",
         stdout: "ignore",
         stderr: "ignore",
@@ -275,16 +277,24 @@ export class CommandExecutor extends Context.Service<
   CommandExecutor,
   CommandExecutorService
 >()("CommandExecutor") {
-  static readonly layer = Layer.effect(
-    CommandExecutor,
-    Effect.gen(function* () {
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  private static readonly make = (cwd: string | undefined) =>
+    Layer.effect(
+      CommandExecutor,
+      Effect.gen(function* () {
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-      return CommandExecutor.of({
-        run: (cmd, args, opts) => execute(spawner, cmd, args, opts),
-        exitCode: (cmd, args, opts) =>
-          executeExitCode(spawner, cmd, args, opts),
-      });
-    }),
-  );
+        return CommandExecutor.of({
+          run: (cmd, args, opts) =>
+            execute(spawner, cmd, args, opts, opts?.cwd ?? cwd),
+          exitCode: (cmd, args, opts) =>
+            executeExitCode(spawner, cmd, args, opts, opts?.cwd ?? cwd),
+        });
+      }),
+    );
+
+  /** Run commands in the process's working directory unless a call gives one. */
+  static readonly layer = CommandExecutor.make(undefined);
+
+  /** Run commands in `cwd` unless a call gives its own working directory. */
+  static readonly layerAt = (cwd: string) => CommandExecutor.make(cwd);
 }

@@ -1,22 +1,19 @@
-import { Effect, type FileSystem } from "effect";
-import type { ChildProcessSpawner } from "effect/process";
-import { resolve } from "node:path";
-import { cliStyler, plainStyler, type Styler } from "../../lib/ansi.js";
-import { writeText } from "../../lib/rows.js";
-import { detectStack } from "../context/detect.js";
 import {
-  STACK_CONTEXT_DEFAULTS,
-  type StackContextOptions,
-} from "../context/model.js";
-import {
+  cliStyler,
+  detectStack,
+  plainStyler,
   renderStackContextJson,
+  renderStackContextText,
+  STACK_CONTEXT_DEFAULTS,
   stackContextJsonPayload,
   type StackContextJson,
-} from "../context/renderJson.js";
-import { renderStackContextText } from "../context/renderText.js";
-
-type StackServices =
-  FileSystem.FileSystem | ChildProcessSpawner.ChildProcessSpawner;
+  type StackContextOptions,
+  type StackContextServices,
+  type Styler,
+} from "@timmo001/effect-context";
+import { Effect } from "effect";
+import { resolve } from "node:path";
+import { writeText } from "../../lib/rows.js";
 
 /** Resolve full stack-context options from partial overrides on the defaults. */
 export function stackContextOptions(
@@ -37,7 +34,7 @@ export function stackContextOptions(
 export function stackContextText(
   options: StackContextOptions,
   styler: Styler = plainStyler,
-): Effect.Effect<string, never, StackServices> {
+): Effect.Effect<string, never, StackContextServices> {
   return detectStack(options).pipe(
     Effect.map((stack) => renderStackContextText(stack, styler)),
     Effect.withSpan("stackContext.text"),
@@ -50,7 +47,7 @@ export function stackContextResult(
 ): Effect.Effect<
   { readonly text: string; readonly structured: StackContextJson },
   never,
-  StackServices
+  StackContextServices
 > {
   return detectStack(options).pipe(
     Effect.map((stack) => ({
@@ -64,7 +61,7 @@ export function stackContextResult(
 /** Build stack-context JSON output. */
 export function stackContextJson(
   options: StackContextOptions,
-): Effect.Effect<string, never, StackServices> {
+): Effect.Effect<string, never, StackContextServices> {
   return detectStack(options).pipe(
     Effect.map((stack) => `${renderStackContextJson(stack)}\n`),
     Effect.withSpan("stackContext.json"),
@@ -75,7 +72,7 @@ export function stackContextJson(
 export function stackContextRaw(
   options: StackContextOptions,
   plain = false,
-): Effect.Effect<void, never, StackServices> {
+): Effect.Effect<void, never, StackContextServices> {
   return stackContextText(
     options,
     plain ? plainStyler : cliStyler(process.stdout),
@@ -85,7 +82,7 @@ export function stackContextRaw(
 /** CLI: write stack-context JSON output to stdout. */
 export function stackContextRawJson(
   options: StackContextOptions,
-): Effect.Effect<void, never, StackServices> {
+): Effect.Effect<void, never, StackContextServices> {
   return stackContextJson(options).pipe(
     Effect.flatMap(writeText),
     Effect.withSpan("stackContext.rawJson"),

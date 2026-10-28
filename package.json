@@ -9,14 +9,16 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --compile --outfile dist/context",
+    "build:packages": "bun run --cwd packages/effect-context build",
     "test": "bun test",
     "lint": "oxlint .",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
+    "format": "prettier --write \"src/**/*.ts\" \"packages/*/src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"packages/*/src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
     "prepare": "effect-tsgo patch --typescript --force=false"
   },
   "dependencies": {
     "@effect/platform-node": "4.0.7",
+    "@timmo001/effect-context": "workspace:*",
     "@timmo001/effect-gh": "0.8.0",
     "effect": "4.0.7"
   },
@@ -29,5 +31,8 @@
     "oxlint-tsgolint": "7.0.2005",
     "prettier": "^3.5.3",
     "typescript": "7.0.2"
-  }
+  },
+  "workspaces": [
+    "packages/*"
+  ]
 }

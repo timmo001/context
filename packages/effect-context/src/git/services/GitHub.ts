@@ -28,6 +28,14 @@ export interface GitHubSettings {
   readonly rateLimitMaxWaitSeconds: number;
 }
 
+/** GitHub retry and rate-limit settings used when a caller doesn't override them. */
+export const GITHUB_DEFAULTS: GitHubSettings = {
+  retries: 2,
+  rateLimitTtlSeconds: 60,
+  rateLimitMinRemaining: 0,
+  rateLimitMaxWaitSeconds: 60,
+};
+
 /** Domain error for GitHub CLI/API operations. */
 class GitHubError extends Schema.TaggedError<GitHubError>()("GitHubError", {
   command: Schema.String,

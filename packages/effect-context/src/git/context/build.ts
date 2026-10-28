@@ -212,12 +212,14 @@ function sanitiseRemoteUrl(url: string): string {
 /**
  * Build the full structured branch-context snapshot. Mandatory Git collection
  * failures propagate; a missing worktree resolves to `{ inRepo: false }` and PR
- * collection failures degrade to warnings.
+ * collection failures degrade to warnings. A `cwd` runs every git and `gh`
+ * call there instead of the services' default working directory.
  */
 export function buildBranchContext(
   options: BranchContextOptions,
+  cwd?: string,
 ): Effect.Effect<BranchContextData, Error, CommandExecutor | GitHub> {
-  return Effect.gen(function* () {
+  const build = Effect.gen(function* () {
     const warnings: string[] = [];
 
     const inRepo =
@@ -354,7 +356,7 @@ export function buildBranchContext(
       warnings: readonly string[];
     } =
       options.pullRequest && branch && onDefaultBranch === false
-        ? yield* collectPullRequest(options)
+        ? yield* collectPullRequest(options, cwd)
         : { data: null, warnings: [] };
 
     if (options.pullRequest && branch && onDefaultBranch === null) {
@@ -375,7 +377,33 @@ export function buildBranchContext(
       pullRequest: prResult.data,
       warnings,
     };
-  }).pipe(Effect.withSpan("branchContext.build"));
+  });
+
+  return (cwd === undefined ? build : inDirectory(build, cwd)).pipe(
+    Effect.withSpan("branchContext.build"),
+  );
+}
+
+/** Run `effect` with every command defaulting to `cwd`. */
+function inDirectory<A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  cwd: string,
+): Effect.Effect<A, E, R | CommandExecutor> {
+  return Effect.gen(function* () {
+    const executor = yield* CommandExecutor;
+
+    return yield* effect.pipe(
+      Effect.provideService(
+        CommandExecutor,
+        CommandExecutor.of({
+          run: (cmd, args, opts) =>
+            executor.run(cmd, args, { ...opts, cwd: opts?.cwd ?? cwd }),
+          exitCode: (cmd, args, opts) =>
+            executor.exitCode(cmd, args, { ...opts, cwd: opts?.cwd ?? cwd }),
+        }),
+      ),
+    );
+  });
 }
 
 /** Collect working-tree status: unstaged/staged file lists plus `-sb` text. */

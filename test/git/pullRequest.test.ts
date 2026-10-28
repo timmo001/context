@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { collectPullRequest } from "../../src/git/context/pullRequest.js";
 import {
+  collectPullRequest,
   GIT_CONTEXT_DEFAULTS,
+  GitHub,
   PR_LIMITS,
-} from "../../src/git/context/model.js";
-import { GitHub, type GitHubService } from "../../src/git/services/GitHub.js";
+  type GitHubService,
+} from "@timmo001/effect-context";
 import { failure, makeGitHub, success } from "./helpers/gh.js";
 
 const fields =

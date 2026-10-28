@@ -1,4 +1,14 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
+import {
+  CommandExecutor,
+  DEFAULT_COMMAND_MAX_OUTPUT_BYTES,
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  ENV,
+  envNonNegativeInt,
+  GITHUB_DEFAULTS,
+  GitHub,
+  type GitHubSettings,
+} from "@timmo001/effect-context";
 import { layer as ghLayer } from "@timmo001/effect-gh";
 import { Cause, Effect, Exit, Layer, Runtime } from "effect";
 import {
@@ -14,15 +24,7 @@ import {
 } from "./cli/completions.js";
 import { gitCliInvocation } from "./cli/git-options.js";
 import { renderHelp } from "./cli/help.js";
-import {
-  DEFAULT_COMMAND_MAX_OUTPUT_BYTES,
-  DEFAULT_COMMAND_TIMEOUT_MS,
-  ENV,
-  envNonNegativeInt,
-} from "./lib/env.js";
-import { GitHub, type GitHubSettings } from "./git/services/GitHub.js";
 import { formatCommandError } from "./lib/rows.js";
-import { CommandExecutor } from "./services/CommandExecutor.js";
 
 function usageMessage(message: string): string {
   return `${message}\nRun 'context --help' to see available commands.`;
@@ -132,18 +134,21 @@ function reportCliCause(cause: Cause.Cause<unknown>) {
 }
 
 const gitHubSettings: GitHubSettings = {
-  retries: envNonNegativeInt(ENV.CONTEXT_GITHUB_RETRIES, 2),
+  retries: envNonNegativeInt(
+    ENV.CONTEXT_GITHUB_RETRIES,
+    GITHUB_DEFAULTS.retries,
+  ),
   rateLimitTtlSeconds: envNonNegativeInt(
     ENV.CONTEXT_GITHUB_RATE_LIMIT_TTL_SECONDS,
-    60,
+    GITHUB_DEFAULTS.rateLimitTtlSeconds,
   ),
   rateLimitMinRemaining: envNonNegativeInt(
     ENV.CONTEXT_GITHUB_RATE_LIMIT_MIN_REMAINING,
-    0,
+    GITHUB_DEFAULTS.rateLimitMinRemaining,
   ),
   rateLimitMaxWaitSeconds: envNonNegativeInt(
     ENV.CONTEXT_GITHUB_RATE_LIMIT_MAX_WAIT_SECONDS,
-    60,
+    GITHUB_DEFAULTS.rateLimitMaxWaitSeconds,
   ),
 };
 

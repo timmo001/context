@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
-import type { StackContextData } from "../../src/stack/context/model.js";
-import { STACK_LIMITS } from "../../src/stack/context/model.js";
-import { renderStackContextJson } from "../../src/stack/context/renderJson.js";
-import { renderStackContextText } from "../../src/stack/context/renderText.js";
+import {
+  renderStackContextJson,
+  renderStackContextText,
+  STACK_LIMITS,
+  type StackContextData,
+} from "@timmo001/effect-context";
 
 const truncationSchema = Schema.Struct({
   reason: Schema.String,

@@ -7,7 +7,7 @@ import {
   parseRequirementsDependencies,
   parseSetupPyDependencies,
   pythonRequirementName,
-} from "../../src/stack/context/manifestParsers.js";
+} from "@timmo001/effect-context";
 
 describe("focused manifest parsers", () => {
   test("parses only go.mod require directives", () => {

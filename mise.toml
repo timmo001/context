@@ -18,6 +18,11 @@ description = "Compile the context binary"
 depends = ["install"]
 run = "bun run build"
 
+[tasks."build:packages"]
+description = "Build the @timmo001/effect-context package"
+depends = ["install"]
+run = "bun run build:packages"
+
 [tasks.typecheck]
 description = "Type-check the context source"
 depends = ["install"]
@@ -44,8 +49,8 @@ depends = ["install"]
 run = "bun run format:check"
 
 [tasks.check]
-description = "Lint, type-check, and verify formatting"
-depends = ["lint", "typecheck", "format:check"]
+description = "Lint, type-check, verify formatting and build the library package"
+depends = ["lint", "typecheck", "format:check", "build:packages"]
 
 [tasks."docs:install"]
 description = "Install docs dependencies"

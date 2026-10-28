@@ -1,18 +1,18 @@
-import { Effect } from "effect";
-import { CommandExecutor } from "../../services/CommandExecutor.js";
-import { cliStyler, plainStyler, type Styler } from "../../lib/ansi.js";
-import { GitHub } from "../services/GitHub.js";
-import { buildBranchContext } from "../context/build.js";
-import {
-  GIT_CONTEXT_DEFAULTS,
-  type BranchContextOptions,
-} from "../context/model.js";
 import {
   branchContextJsonPayload,
+  buildBranchContext,
+  cliStyler,
+  CommandExecutor,
+  GIT_CONTEXT_DEFAULTS,
+  GitHub,
+  plainStyler,
   renderBranchContextJson,
+  renderBranchContextText,
   type BranchContextJson,
-} from "../context/renderJson.js";
-import { renderBranchContextText } from "../context/renderText.js";
+  type BranchContextOptions,
+  type Styler,
+} from "@timmo001/effect-context";
+import { Effect } from "effect";
 import { handleCommandError, writeText } from "../../lib/rows.js";
 
 const handleContextError = handleCommandError("context git");

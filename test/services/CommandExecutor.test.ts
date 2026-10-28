@@ -9,7 +9,7 @@ import {
   CommandExecutor,
   type CommandExitCodeOptions,
   type CommandRunOptions,
-} from "../../src/services/CommandExecutor.js";
+} from "@timmo001/effect-context";
 import {
   makeTempDirectory,
   pathExists,
