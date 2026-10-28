@@ -19,9 +19,11 @@ yay -S context-git
 
 Both packages install the `context` binary plus Bash, Fish, and Zsh completions.
 
-Stable releases use a manually chosen `YYYYMMDD.N` version. Create a blank
-GitHub draft, optionally generate its release notes, then publish it to build
-Linux archives, deb and RPM packages and update `context-bin`.
+Stable releases use a semver version shared by the CLI and
+`@timmo001/effect-context`. Create a blank GitHub draft tagged with it,
+optionally generate its release notes, then publish it to build Linux
+archives, deb and RPM packages, publish the library to npm and JSR, and update
+`context-bin`.
 
 ## Runtime Requirements
 

@@ -1,6 +1,6 @@
 {
   "name": "@timmo001/effect-context",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Effect library for git branch and tech-stack context, as used by the context CLI and MCP server",
   "keywords": [
     "effect",
@@ -49,8 +49,8 @@
     "@timmo001/effect-gh": "0.8.0"
   },
   "peerDependencies": {
-    "@effect/platform-node": "4.0.7",
-    "effect": "4.0.7"
+    "@effect/platform-node": "^4.0.1",
+    "effect": "^4.0.1"
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.7",

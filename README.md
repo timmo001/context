@@ -14,9 +14,11 @@ Agents can use [`context-cli`](.agents/skills/context-cli/SKILL.md) for shell co
 npx skills add timmo001/context
 ```
 
-Stable releases use a manually chosen `YYYYMMDD.N` version. Create a blank
-GitHub draft, optionally generate its release notes, then publish it to build
-Linux archives, deb and RPM packages, and update `context-bin` in the AUR.
+Stable releases use a semver version shared by the CLI and
+`@timmo001/effect-context`. Create a blank GitHub draft tagged with it,
+optionally generate its release notes, then publish it to build
+Linux archives, deb and RPM packages, publish the library to npm and JSR, and
+update `context-bin` in the AUR.
 `context-git` continues to track relevant changes on `main`.
 Download stable assets from the [GitHub releases page](https://github.com/timmo001/context/releases).
 

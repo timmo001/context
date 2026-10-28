@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          [[ "$RELEASE_VERSION" =~ ^[0-9]{8}\.[0-9]+$ ]] || {
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "::error::Invalid stable release version: $RELEASE_VERSION"
             exit 1
           }
@@ -86,38 +86,9 @@ jobs:
       existing-release: true
       attest: true
 
-  effect-context-version:
-    name: Check effect-context version
-    needs: validate-release
-    runs-on: ubuntu-latest
-    outputs:
-      publish: ${{ steps.check.outputs.publish }}
-    env:
-      RELEASE_VERSION: >-
-        ${{ inputs.release-version || github.event.release.tag_name }}
-    steps:
-      - name: Check out release source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          ref: ${{ env.RELEASE_VERSION }}
-
-      - name: Skip versions already on npm
-        id: check
-        run: |
-          set -euo pipefail
-          version="$(jq -r .version packages/effect-context/package.json)"
-          if npm view "@timmo001/effect-context@$version" version >/dev/null 2>&1; then
-            echo "::notice::@timmo001/effect-context@$version is already published; bump packages/effect-context to release it."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          fi
-
   effect-context-npm:
     name: effect-context npm
-    needs: effect-context-version
-    if: needs.effect-context-version.outputs.publish == 'true'
+    needs: validate-release
     permissions:
       contents: read
       id-token: write
@@ -131,8 +102,7 @@ jobs:
 
   effect-context-jsr:
     name: effect-context JSR
-    needs: effect-context-version
-    if: needs.effect-context-version.outputs.publish == 'true'
+    needs: validate-release
     permissions:
       contents: read
       id-token: write
