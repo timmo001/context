@@ -17,10 +17,10 @@
     "prepare": "effect-tsgo patch --typescript --force=false"
   },
   "dependencies": {
-    "@effect/platform-node": "4.1.0",
+    "@effect/platform-node": "4.1.1",
     "@timmo001/effect-context": "workspace:*",
     "@timmo001/effect-gh": "0.9.1",
-    "effect": "4.1.0"
+    "effect": "4.1.1"
   },
   "devDependencies": {
     "@effect/tsgo": "0.63.0",
