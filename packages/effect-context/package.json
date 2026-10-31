@@ -1,6 +1,6 @@
 {
   "name": "@timmo001/effect-context",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Effect library for git branch and tech-stack context, as used by the context CLI and MCP server",
   "keywords": [
     "effect",
