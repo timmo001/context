@@ -1,5 +1,7 @@
-import { Effect, Schema } from "effect";
+import { CommandExecutor, GitHub } from "@timmo001/effect-context";
+import { Effect, FileSystem, Schema } from "effect";
 import { McpSchema, McpServer } from "effect/ai";
+import { ChildProcessSpawner } from "effect/process";
 import { renderHelp } from "../../cli/help.js";
 import { nativeCommandNames } from "../../cli/spec.js";
 import {
@@ -15,12 +17,22 @@ const commandParam = McpSchema.param("name", Schema.String);
 
 /** Register read-only context resources. */
 export const registerContextResources = Effect.gen(function* () {
+  // Resource handler services are request-level in McpServer, so capture them
+  // at registration and provide them to each read, as the tools do.
+  const executor = yield* CommandExecutor;
+  const github = yield* GitHub;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
   yield* McpServer.registerResource({
     uri: "context://git",
     name: "git context",
     description: "Concise branch context for the current repository.",
     mimeType: "text/plain",
-    content: gitContextText(gitContextOptions({})),
+    content: gitContextText(gitContextOptions({})).pipe(
+      Effect.provideService(CommandExecutor, executor),
+      Effect.provideService(GitHub, github),
+    ),
   });
 
   yield* McpServer.registerResource({
@@ -28,7 +40,10 @@ export const registerContextResources = Effect.gen(function* () {
     name: "stack context",
     description: "Deterministic tech-stack summary for the current directory.",
     mimeType: "text/plain",
-    content: stackContextText(stackContextOptions({})),
+    content: stackContextText(stackContextOptions({})).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    ),
   });
 
   yield* McpServer.registerResource`context://command/${commandParam}`({
