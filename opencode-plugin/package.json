@@ -1,0 +1,15 @@
+{
+  "name": "@context/opencode",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@opencode/plugin": "2.2.6",
+    "@opencode/schema": "2.2.6",
+    "effect": "4.1.0"
+  }
+}

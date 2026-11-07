@@ -26,7 +26,12 @@ run = "bun run build:packages"
 [tasks.typecheck]
 description = "Type-check the context source"
 depends = ["install"]
-run = "bun ./node_modules/typescript/bin/tsc --noEmit"
+run = [
+  "bun ./node_modules/typescript/bin/tsc --noEmit",
+  # The OpenCode plugin pins OpenCode's Effect, so it has its own install.
+  "bun install --cwd opencode-plugin --frozen-lockfile",
+  "bun ./node_modules/typescript/bin/tsc -p opencode-plugin",
+]
 
 [tasks.test]
 description = "Run context tests"

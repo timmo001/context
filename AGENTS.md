@@ -14,10 +14,10 @@ This repo contains the standalone `context` CLI and MCP server.
 
 - Keep code at the repo root under `src/`.
 - Keep CLI metadata in `src/cli/spec.ts`; help and generated docs consume it.
-- Keep portable Context skills under `.agents/skills/`, with separate `context-cli` and `context-mcp` workflows. Keep harness-specific integrations in their owning repositories.
+- Keep portable Context skills under `.agents/skills/`, with separate `context-cli` and `context-mcp` workflows. Keep other harness-specific integrations in their owning repositories.
+- `opencode-plugin/` is the Context OpenCode plugin, loaded from this repository. It registers the `context` Code Mode namespace from `context agent tools --json` (`src/agent/tools.ts`) and runs each tool with `context agent call` in the session's directory, so a new tool there needs no plugin change. It has its own `bun.lock`, outside the workspace, because it pins OpenCode's `@opencode/plugin` and Effect versions; `mise run typecheck` installs and checks it.
 - Regenerate generated docs with `mise run docs:gen` after changing CLI or MCP metadata.
 - Do not hand-edit generated docs pages.
-- Keep OpenCode plugin docs out of this repo except for links to `timmo001/dotfiles` or its integration notes at <https://dotfiles.timmo.dev/opencode/>.
 
 ## Skill Ownership And Updates
 

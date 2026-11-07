@@ -12,8 +12,8 @@
     "build:packages": "bun run --cwd packages/effect-context build",
     "test": "bun test",
     "lint": "oxlint .",
-    "format": "prettier --write \"src/**/*.ts\" \"packages/*/src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"packages/*/src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
+    "format": "prettier --write \"{src,opencode-plugin/src}/**/*.ts\" \"packages/*/src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
+    "format:check": "prettier --check \"{src,opencode-plugin/src}/**/*.ts\" \"packages/*/src/**/*.ts\" \"test/**/*.ts\" \"docs/astro.config.mjs\" \"docs/scripts/**/*.{ts,mjs}\" \"docs/src/**/*.{md,mdx,astro,css}\"",
     "prepare": "effect-tsgo patch --typescript --force=false"
   },
   "dependencies": {

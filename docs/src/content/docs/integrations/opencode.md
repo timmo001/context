@@ -5,15 +5,25 @@ sidebar:
   order: 1
 ---
 
-`context` owns the generic CLI and MCP server. OpenCode plugins are maintained outside this repo because they are part of the agent configuration layer.
+`context` owns the generic CLI, MCP server and OpenCode plugin.
 
-The OpenCode plugins live in [`timmo001/dotfiles`](https://github.com/timmo001/dotfiles), with integration notes in the [dotfiles docs](https://dotfiles.timmo.dev/opencode/).
+## Plugin
 
-Those plugins should call:
+The OpenCode plugin in `opencode-plugin/` adds a `context` Code Mode namespace, so an agent can read the session repository's branch context and tech stack in one script. Load it from the repository:
+
+```json
+{
+  "plugins": ["github:timmo001/context#main::path:opencode-plugin"]
+}
+```
+
+It reads its tools from `context agent tools --json` and runs each with `context agent call` in the session's directory, so they always match the `context` on your `PATH`. Both tools only read.
+
+## CLI
+
+Other integrations can call the CLI directly:
 
 ```bash
 context git --json
 context stack --json
 ```
-
-The `context` repo should not duplicate plugin internals. It documents only the CLI/MCP contracts those plugins consume.
