@@ -54,7 +54,7 @@ describe("parseCliArgs", () => {
     ],
     [
       ["help", "unknown"],
-      "context help: invalid value 'unknown' for <command> (expected: git, stack, mcp, completions)",
+      "context help: invalid value 'unknown' for <command> (expected: git, stack, mcp, agent, completions)",
     ],
   ] as const)("rejects %j", (args, expected) => {
     expect(usageError(args)).toBe(expected);

@@ -120,6 +120,36 @@ Start a Model Context Protocol server exposing git_context, stack_context, and c
 context mcp
 ```
 
+## `context agent`
+
+List or run the Code Mode tools the OpenCode plugin registers
+
+```text
+context agent tools [--json] | call <tool>
+```
+
+The Code Mode surface for agent plugins. `agent tools` prints every tool with its input schema as JSON. `agent call <tool>` runs one in the current directory, with its input as JSON on stdin, and prints its result as JSON.
+
+**Options**
+
+| Option   | Description                  |
+| -------- | ---------------------------- |
+| `--json` | Print JSON (the only format) |
+
+**Arguments**
+
+| Argument   | Description                                                           |
+| ---------- | --------------------------------------------------------------------- |
+| `<action>` | tools to list the tools, or call to run one. One of: `tools`, `call`. |
+| `<tool>`   | The tool to run, from context agent tools. One of: `git`, `stack`.    |
+
+**Examples**
+
+```bash
+context agent tools --json
+echo '{"comments":true}' | context agent call git
+```
+
 ## `context completions`
 
 Generate shell completions
@@ -154,9 +184,9 @@ context help [command]
 
 **Arguments**
 
-| Argument    | Description                                                                      |
-| ----------- | -------------------------------------------------------------------------------- |
-| `<command>` | Optional command to show help for. One of: `git`, `stack`, `mcp`, `completions`. |
+| Argument    | Description                                                                               |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| `<command>` | Optional command to show help for. One of: `git`, `stack`, `mcp`, `agent`, `completions`. |
 
 **Examples**
 

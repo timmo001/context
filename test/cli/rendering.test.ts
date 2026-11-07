@@ -50,7 +50,7 @@ describe("CLI registry rendering", () => {
       renderZshCompletions(),
     ]) {
       expect(output).toContain("bash fish zsh");
-      expect(output).toContain("git stack mcp completions");
+      expect(output).toContain("git stack mcp agent completions");
     }
   });
 });

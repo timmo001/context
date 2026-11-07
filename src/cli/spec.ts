@@ -207,6 +207,34 @@ export const cliCommands: readonly CliCommandSpec[] = [
     examples: ["context mcp"],
   },
   {
+    name: "agent",
+    summary: "List or run the Code Mode tools the OpenCode plugin registers",
+    usage: "tools [--json] | call <tool>",
+    description: [
+      "The Code Mode surface for agent plugins. `agent tools` prints every tool with its input schema as JSON. `agent call <tool>` runs one in the current directory, with its input as JSON on stdin, and prints its result as JSON.",
+    ],
+    arguments: [
+      {
+        name: "action",
+        description: "tools to list the tools, or call to run one",
+        choices: [{ value: "tools" }, { value: "call" }],
+      },
+      {
+        name: "tool",
+        description: "The tool to run, from context agent tools",
+        choices: [{ value: "git" }, { value: "stack" }],
+      },
+    ],
+    options: [
+      { name: "--json", description: "Print JSON (the only format)" },
+      helpOption,
+    ],
+    examples: [
+      "context agent tools --json",
+      "echo '{\"comments\":true}' | context agent call git",
+    ],
+  },
+  {
     name: "completions",
     summary: "Generate shell completions",
     usage: "[bash|fish|zsh]",
@@ -237,6 +265,7 @@ export const cliCommands: readonly CliCommandSpec[] = [
           { value: "git" },
           { value: "stack" },
           { value: "mcp" },
+          { value: "agent" },
           { value: "completions" },
         ],
       },

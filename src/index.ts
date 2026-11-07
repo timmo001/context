@@ -10,7 +10,7 @@ import {
   type GitHubSettings,
 } from "@timmo001/effect-context";
 import { layer as ghLayer } from "@timmo001/effect-gh";
-import { Cause, Effect, Exit, Layer, Runtime } from "effect";
+import { Cause, Effect, Exit, Layer, Runtime, Stdio, Stream } from "effect";
 import {
   hasOption,
   parseCliArgs,
@@ -74,6 +74,31 @@ function runStack(args: ParsedCliArgs) {
   );
 }
 
+const runAgent = Effect.fn("Cli.runAgent")(function* (args: ParsedCliArgs) {
+  const Agent = yield* Effect.promise(() => import("./agent/tools.js"));
+  const [action, tool] = args.positionals;
+
+  if (action === "tools" && tool === undefined) {
+    return yield* Effect.sync(() =>
+      console.log(JSON.stringify(Agent.manifest(), null, 2)),
+    );
+  }
+
+  if (action !== "call" || tool === undefined) {
+    return yield* new UsageError({
+      message: "context agent: use 'agent tools' or 'agent call <tool>'",
+    });
+  }
+
+  const stdio = yield* Stdio.Stdio;
+
+  const text = yield* stdio.stdin.pipe(Stream.decodeText(), Stream.mkString);
+
+  const output = yield* Agent.call(tool, text);
+
+  yield* Effect.sync(() => console.log(output));
+});
+
 function runCompletions(args: ParsedCliArgs) {
   const shell = args.positionals[0] ?? "zsh";
 
@@ -106,6 +131,8 @@ function runCommand(args: ParsedCliArgs) {
       return Effect.promise(() => import("./mcp/commands/Mcp.js")).pipe(
         Effect.flatMap(({ mcpServer }) => mcpServer),
       );
+    case "agent":
+      return runAgent(args);
     case "completions":
       return runCompletions(args);
     case "help":
