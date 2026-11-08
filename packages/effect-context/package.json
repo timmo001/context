@@ -46,7 +46,7 @@
     "prepack": "bun run build"
   },
   "dependencies": {
-    "@timmo001/effect-gh": "0.13.0"
+    "@timmo001/effect-gh": "0.13.2"
   },
   "peerDependencies": {
     "@effect/platform-node": "^4.0.1",
