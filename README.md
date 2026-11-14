@@ -2,6 +2,8 @@
 
 Standalone CLI and MCP server for deterministic repository context.
 
+[![Context on StartupScores](https://startupscores.com/badge/context.svg?style=shield&v=combo&theme=dark)](https://startupscores.com/open-source/context)
+
 `context` gives humans and agents one command for branch, stack, and tool
 context. It provides a CLI for direct use and an MCP server for harnesses that
 prefer tools and resources.
