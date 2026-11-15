@@ -3,6 +3,8 @@ dist/
 dist-ts/
 docs/dist/
 docs/.astro/
+docs/.blume/
+docs/.blume-verify/
 .opencode/references/
 .env
 .env.*

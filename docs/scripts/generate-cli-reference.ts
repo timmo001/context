@@ -145,10 +145,6 @@ push(
   "description: Every context command, flag and example, generated from the CLI registry.",
 );
 
-push("sidebar:");
-
-push("  order: 2");
-
 push("---");
 
 push();

@@ -62,8 +62,8 @@ depends = ["install"]
 run = "bun run format:check"
 
 [tasks.check]
-description = "Lint, type-check, verify formatting and build the library package"
-depends = ["lint", "typecheck", "format:check", "build:packages"]
+description = "Lint, type-check, verify formatting, build the library package and check the docs site"
+depends = ["lint", "typecheck", "format:check", "build:packages", "docs:check"]
 
 [tasks."docs:install"]
 description = "Install docs dependencies"
@@ -74,7 +74,8 @@ run = "bun install --frozen-lockfile"
 description = "Run docs dev server"
 depends = ["docs:install"]
 dir = "docs"
-run = "bun run dev"
+# A reused Vite cache makes every page fail to resolve Astro's ClientRouter script
+run = ["rm -rf .blume/.cache/vite", "bun run dev"]
 
 [tasks."serve:docs"]
 description = "Start the docs dev server in the background through Pitchfork"
@@ -103,11 +104,11 @@ depends = ["docs:install"]
 dir = "docs"
 run = "bun run build"
 
-[tasks."docs:og"]
-description = "Regenerate the docs Open Graph image"
+[tasks."docs:brand"]
+description = "Regenerate the docs logo PNGs and social preview"
 depends = ["docs:install"]
 dir = "docs"
-run = "bun run og"
+run = "bun run brand"
 
 [tasks."docs:preview"]
 description = "Preview docs site"
@@ -134,7 +135,10 @@ dir = "docs"
 run = "bun run gen"
 
 [tasks."docs:check"]
-description = "Regenerate and build docs"
+description = "Regenerate the references, then check the docs site's pages, links and types without disturbing a running dev server"
 depends = ["docs:gen", "docs:install"]
 dir = "docs"
-run = "bun run build"
+# The tsconfig reads Blume's generated types from .blume/. When it exists a dev
+# server may be using it, so check in --isolated's .blume-verify/ and keep
+# reading those types; in a fresh checkout such as CI, generate .blume/ itself.
+run = "if [ -d .blume ]; then bun run check -- --isolated; else bun run check; fi"

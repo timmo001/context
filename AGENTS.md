@@ -7,7 +7,7 @@ This repo contains the standalone `context` CLI and MCP server.
 - Runtime and package manager: Bun.
 - Language: TypeScript.
 - Effects and services: Effect v4.
-- Docs: Astro + Starlight under `docs/`.
+- Docs: Blume with `@timmo001/docs-kit` under `docs/`.
 - Task runner: mise.
 
 ## Rules

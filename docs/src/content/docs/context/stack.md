@@ -1,8 +1,6 @@
 ---
 title: Stack Context
 description: Deterministic tech-stack detection for a directory.
-sidebar:
-  order: 2
 ---
 
 `context stack` detects a repository's tech stack from Git-listed files with no LLM and no external scanners.

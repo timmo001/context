@@ -29,6 +29,6 @@ The MCP server exposes the same producers through `git_context`, `stack_context`
 
 ## Next Steps
 
-- Read the [CLI overview](/cli/) for terminal usage.
-- Read the [Git Context](/context/git/) and [Stack Context](/context/stack/) pages for producer details.
-- Read the [MCP Server](/mcp/) page for agent integration.
+- Read the [CLI overview](/cli) for terminal usage.
+- Read the [Git Context](/context/git) and [Stack Context](/context/stack) pages for producer details.
+- Read the [MCP Server](/mcp/server) page for agent integration.

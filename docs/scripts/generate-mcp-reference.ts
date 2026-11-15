@@ -19,10 +19,6 @@ push("title: MCP Tool Reference");
 
 push("description: Generated reference for the context MCP tools.");
 
-push("sidebar:");
-
-push("  order: 2");
-
 push("---");
 
 push();

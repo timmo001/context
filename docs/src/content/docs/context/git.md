@@ -1,8 +1,6 @@
 ---
 title: Git Context
 description: Branch, pull request, working-tree, and commit context for agents.
-sidebar:
-  order: 1
 ---
 
 `context git` prints a compact snapshot of the current Git repository. It replaces separate calls to `git status`, `git diff --stat`, `git diff --cached --stat`, `git log --oneline --stat`, `git log @{upstream}..HEAD`, and selected `gh pr` commands.

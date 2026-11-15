@@ -1,8 +1,6 @@
 ---
 title: OpenCode
 description: How OpenCode integrations relate to context.
-sidebar:
-  order: 1
 ---
 
 `context` owns the generic CLI, MCP server and OpenCode plugin.

@@ -1,8 +1,6 @@
 ---
 title: Shell Completions
 description: Generate shell completions for context.
-sidebar:
-  order: 3
 ---
 
 `context` can print completion scripts for Bash, Fish, and Zsh:

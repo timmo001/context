@@ -1,8 +1,6 @@
 ---
 title: MCP Tool Reference
 description: Generated reference for the context MCP tools.
-sidebar:
-  order: 2
 ---
 
 <!-- Generated from src/mcp/toolMetadata.ts by `mise run docs:gen:mcp`. Do not edit by hand. -->

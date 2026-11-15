@@ -1,77 +1,55 @@
 ---
 title: Context
 description: Standalone CLI and MCP server for deterministic repository context.
-template: splash
-hero:
-  title: Context
-  tagline: One command for deterministic repository context.
-  image:
-    file: ../../assets/logo.svg
-    alt: Context logo
-  actions:
-    - text: Install
-      link: /install/
-      icon: right-arrow
-    - text: Quick start
-      link: /quick-start/
-      icon: open-book
-      variant: minimal
-    - text: View on GitHub
-      link: https://github.com/timmo001/context
-      icon: external
-      variant: minimal
-      attrs:
-        rel: me
 ---
-
-import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
 `context` gives agents and humans one command for the repository facts they usually gather with many shell calls.
 
-<CardGrid>
-  <Card title="Git context" icon="code-branch">
+<CardGroup cols={2}>
+  <Card title="Git context">
     Branch, pull request, working-tree, diff, and recent-commit context in one
     deterministic snapshot.
   </Card>
-  <Card title="Stack detection" icon="magnifier">
+  <Card title="Stack detection">
     Language, ecosystem, tooling, and framework detection from repository files,
     with no LLM and no external scanners.
   </Card>
-  <Card title="MCP server" icon="server">
+  <Card title="MCP server">
     The same producers exposed over stdio as read-only MCP tools and resources
     for agent harnesses.
   </Card>
-  <Card title="Generated references" icon="open-book">
+  <Card title="Generated references">
     CLI help, shell completions, and MCP tool docs generated from the same
     source metadata.
   </Card>
-</CardGrid>
+</CardGroup>
 
 ## Start Here
 
-<CardGrid>
-  <LinkCard
-    title="Install"
-    href="/install/"
-    description="Install from the AUR or build the binary locally with mise."
-  />
-  <LinkCard
-    title="Quick Start"
-    href="/quick-start/"
-    description="Run the core CLI commands and start the MCP server."
-  />
-  <LinkCard
-    title="CLI"
-    href="/cli/"
-    description="Use context directly from a terminal or script."
-  />
-  <LinkCard
-    title="MCP Server"
-    href="/mcp/"
-    description="Expose context to MCP-compatible agents over stdio."
-  />
-</CardGrid>
+<CardGroup cols={2}>
+  <Card title="Install" href="/install">
+    Install from the AUR or build the binary locally with mise.
+  </Card>
+  <Card title="Quick Start" href="/quick-start">
+    Run the core CLI commands and start the MCP server.
+  </Card>
+  <Card title="CLI" href="/cli">
+    Use context directly from a terminal or script.
+  </Card>
+  <Card title="MCP Server" href="/mcp">
+    Expose context to MCP-compatible agents over stdio.
+  </Card>
+</CardGroup>
 
 ## Documentation Scope
 
 Generic CLI and MCP behaviour lives here. OpenCode plugins that inject this context into sessions live in [`timmo001/dotfiles`](https://github.com/timmo001/dotfiles), with integration notes in the [dotfiles docs](https://dotfiles.timmo.dev/opencode/).
+
+## Machine-readable docs
+
+| URL                                     | Use                                      |
+| --------------------------------------- | ---------------------------------------- |
+| https://context.timmo.dev/llms.txt      | Compact page index                       |
+| https://context.timmo.dev/llms-full.txt | Full docs bundle                         |
+| https://context.timmo.dev/mcp           | Hosted MCP (search, page and navigation) |
+| `/{route}.md`                           | One page as Markdown                     |
