@@ -48,7 +48,8 @@ run = "bun test"
 
 [tasks.lint]
 description = "Lint source with Oxlint"
-depends = ["install"]
+# Type-aware linting reads docs/tsconfig.json, which extends astro's tsconfig from the docs dependencies.
+depends = ["install", "docs:install"]
 run = "bun run lint"
 
 [tasks.format]
