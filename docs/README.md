@@ -12,20 +12,15 @@ Run these commands from this `docs/` directory:
 - `bun run check` (pages, links and types; `mise run docs:check` also regenerates the references and avoids a running dev server)
 - `bun run brand` (regenerate the logo PNGs and the social preview)
 - `bun run gen` (regenerate the CLI and MCP reference pages from the repository source)
-- `bun run deploy` and `bun run deploy:preview` (deploy to Cloudflare Workers)
+- `bun run plan` (show what deploying the `prod` stage would change)
+- `bun run deploy` (deploy the `prod` stage; build first, or use `mise run docs:deploy`)
 
 ## Deployment
 
-The site deploys to Cloudflare Workers through Workers Builds, as the `context-docs` Worker at `context.timmo.dev`. Workers Builds uses:
+The site's infrastructure is an [Alchemy](https://alchemy.run) stack in `alchemy.run.ts`: the `context-docs` Worker at `context.timmo.dev`, serving what `blume build` writes to `dist/`. The Deploy docs workflow deploys it on pushes to `main` that touch `docs/`, through the shared `deploy-alchemy.yml` workflow.
 
-- Root directory: `docs`
-- Production branch: `main`
-- Build command: `bun run build`
-- Deploy command: `bun run deploy`
-- Non-production deploy command: `bun run deploy:preview`
+CI's Cloudflare token and the repository's `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets come from `stacks/github.ts`. Deploy it once from a machine with `mise run docs:deploy:github`, and again to rotate the token.
 
-The repository checkout remains available above the root directory so the generators can read `../src`. Generated docs stay committed.
-
-`wrangler.jsonc` owns the Worker name, compatibility date and custom domain. Blume writes the deployable Worker and its assets to `dist/`, which the deploy commands point Wrangler at.
+Generated docs stay committed.
 
 The hosted MCP server is at `/mcp`, so the MCP server guide lives at `/mcp/server`.

@@ -105,6 +105,24 @@ depends = ["docs:install"]
 dir = "docs"
 run = "bun run build"
 
+[tasks."docs:plan"]
+description = "Build the docs site, then show what deploying its prod stage would change"
+depends = ["docs:build"]
+dir = "docs"
+run = "bun run plan"
+
+[tasks."docs:deploy"]
+description = "Build the docs site, then deploy its prod stage with Alchemy"
+depends = ["docs:build"]
+dir = "docs"
+run = "bun run deploy"
+
+[tasks."docs:deploy:github"]
+description = "Mint CI's Cloudflare token into the repository's secrets"
+depends = ["docs:install"]
+dir = "docs"
+run = "bun run deploy:github"
+
 [tasks."docs:brand"]
 description = "Regenerate the docs logo PNGs and social preview"
 depends = ["docs:install"]
