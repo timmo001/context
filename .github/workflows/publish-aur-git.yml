@@ -26,33 +26,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  prepare:
-    name: Prepare AUR package (context-git)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Set up mise
-        uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566
-      - name: Prepare context-git
-        run: .scripts/linux/prepare-aur.sh "${{ runner.temp }}/aur-package"
-      - name: Upload context-git
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: aur-context-git-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/aur-package
-          if-no-files-found: error
-          retention-days: 1
-
   publish:
     name: Publish AUR (context-git)
-    needs: prepare
-    uses: timmo001/workflows/.github/workflows/publish-aur.yml@fa479eabebf26cc5f655b165c20423fb8fcc0cf4 # 20261115.0
+    uses: timmo001/workflows/.github/workflows/publish-aur.yml@36ba6651f1296cce685ede8ac38b9574c9291028 # master
     with:
       package-name: context-git
-      artifact-name: aur-context-git-${{ github.run_id }}-${{ github.run_attempt }}
+      prepare-command: .scripts/linux/prepare-aur.sh "$AUR_PACKAGE_DIR"
+      prepare-mise: true
     secrets:
       AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
