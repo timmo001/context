@@ -30,7 +30,7 @@
     "@effect/platform-bun": "4.1.4",
     "alchemy": "2.0.0-beta.87",
     "astro": "7.4.12",
-    "wrangler": "4.163.0"
+    "wrangler": "4.164.0"
   },
   "trustedDependencies": [
     "esbuild",
