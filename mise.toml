@@ -60,6 +60,8 @@ run = "bun run format"
 [tasks."format:check"]
 description = "Check formatting without writing"
 depends = ["install"]
+# The aggregate check also regenerates the reference pages Prettier reads.
+wait_for = ["docs:gen"]
 run = "bun run format:check"
 
 [tasks.check]
