@@ -19,7 +19,7 @@
     "gen": "bun run --parallel gen:cli gen:mcp"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "14.4.8",
+    "@astrojs/cloudflare": "14.4.9",
     "@timmo001/docs-kit": "0.51.0",
     "blume": "2.2.7",
     "sharp": "0.35.5"
@@ -29,7 +29,7 @@
     "@alchemy.run/github": "2.0.0-beta.87",
     "@effect/platform-bun": "4.1.4",
     "alchemy": "2.0.0-beta.87",
-    "astro": "7.4.12",
+    "astro": "7.4.13",
     "wrangler": "4.164.0"
   },
   "trustedDependencies": [
