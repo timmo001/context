@@ -2,7 +2,7 @@ min_version = "2025.1.0"
 
 [tools]
 node = "26.13.1"
-bun = "1.4.4"
+bun = "1.4.5"
 # The linters the shared hk pre-push hook runs, matching CI.
 uv = "0.13.9"
 # yamllint's PyYAML has no wheels for newer Pythons, and mise won't build it from source.
