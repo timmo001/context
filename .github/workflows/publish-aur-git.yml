@@ -28,7 +28,7 @@ concurrency:
 jobs:
   publish:
     name: Publish AUR (context-git)
-    uses: timmo001/workflows/.github/workflows/publish-aur.yml@db6f3692a31de24d2bee17e505dfd2bf3fd5a076 # 20261116.1
+    uses: timmo001/workflows/.github/workflows/publish-aur.yml@5ca45f8d789b67b2c3c14aea6062a379d6c37db1 # 20261123.0
     with:
       package-name: context-git
       prepare-command: .scripts/linux/prepare-aur.sh "$AUR_PACKAGE_DIR"
