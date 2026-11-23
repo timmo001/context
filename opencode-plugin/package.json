@@ -8,8 +8,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@opencode/plugin": "2.3.2",
-    "@opencode/schema": "2.3.2",
+    "@opencode/plugin": "2.4.0",
+    "@opencode/schema": "2.4.0",
     "effect": "4.1.0"
   }
 }
