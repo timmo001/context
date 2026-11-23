@@ -31,7 +31,3 @@ const context = await Effect.all({
 ```
 
 `ContextLayer.make` runs every `git` and `gh` command in `cwd`, so provide one layer per directory.
-
-## Licence
-
-Apache 2.0. See [LICENSE](https://github.com/timmo001/context/blob/main/LICENSE).
